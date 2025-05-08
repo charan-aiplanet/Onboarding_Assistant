@@ -1,0 +1,5 @@
+streamlit
+pandas
+fpdf
+python-dateutil
+email-validator

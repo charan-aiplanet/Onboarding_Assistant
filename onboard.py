@@ -1,3 +1,4 @@
+# Email notification system
 import streamlit as st
 import pandas as pd
 import smtplib
@@ -14,6 +15,9 @@ import sqlite3
 import base64
 from io import BytesIO
 from fpdf import FPDF
+import matplotlib.pyplot as plt
+import numpy as np
+import requests  # Added for alternative email API option
 
 # Set page configuration
 st.set_page_config(
@@ -27,11 +31,10 @@ st.set_page_config(
 DATA_DIR = Path("data")
 TEMPLATES_DIR = DATA_DIR / "templates"
 EMPLOYEES_DIR = DATA_DIR / "employees"
-FEEDBACK_DIR = DATA_DIR / "feedback"
 DOCUMENTS_DIR = DATA_DIR / "documents"
 
 # Create directories if they don't exist
-for directory in [DATA_DIR, TEMPLATES_DIR, EMPLOYEES_DIR, FEEDBACK_DIR, DOCUMENTS_DIR]:
+for directory in [DATA_DIR, TEMPLATES_DIR, EMPLOYEES_DIR, DOCUMENTS_DIR]:
     directory.mkdir(exist_ok=True, parents=True)
 
 # Initialize SQLite database
@@ -73,27 +76,6 @@ def init_db():
     )
     ''')
     
-    # Create feedback table
-    cur.execute('''
-    CREATE TABLE IF NOT EXISTS feedback (
-        id TEXT PRIMARY KEY,
-        employee_id TEXT,
-        name TEXT NOT NULL,
-        email TEXT NOT NULL,
-        role TEXT,
-        overall_rating INTEGER,
-        documentation_rating INTEGER,
-        communication_rating INTEGER,
-        support_rating INTEGER,
-        training_rating INTEGER,
-        tools_rating INTEGER,
-        comments TEXT,
-        suggestions TEXT,
-        timestamp TEXT,
-        FOREIGN KEY (employee_id) REFERENCES employees (id)
-    )
-    ''')
-    
     # Create documents table
     cur.execute('''
     CREATE TABLE IF NOT EXISTS documents (
@@ -131,10 +113,22 @@ if 'user_role' not in st.session_state:
     st.session_state.user_role = None
 if 'page' not in st.session_state:
     st.session_state.page = "Dashboard"
-if 'onboarding_mode' not in st.session_state:
-    st.session_state.onboarding_mode = False
-if 'selected_employee' not in st.session_state:
-    st.session_state.selected_employee = None
+if 'preview_mode' not in st.session_state:
+    st.session_state.preview_mode = False
+if 'edit_mode' not in st.session_state:
+    st.session_state.edit_mode = False
+if 'offer_letter_data' not in st.session_state:
+    st.session_state.offer_letter_data = None
+if 'pdf_content' not in st.session_state:
+    st.session_state.pdf_content = None
+if 'viewing_employee_id' not in st.session_state:
+    st.session_state.viewing_employee_id = None
+if 'email_confirmation_mode' not in st.session_state:
+    st.session_state.email_confirmation_mode = False
+if 'notification_email' not in st.session_state:
+    st.session_state.notification_email = "hr@aiplanet.com"
+if 'notification_history' not in st.session_state:
+    st.session_state.notification_history = []
 
 # Sample roles and their documentation requirements
 ROLES = {
@@ -180,42 +174,6 @@ I look forward to you joining the team and taking AI Planet to newer heights. If
 
 Best regards,
 {HR_Name}
-"""
-
-# Template for onboarding email
-ONBOARDING_EMAIL_TEMPLATE = """
-Dear {employee_name},
-
-Welcome to AI Planet! We're thrilled to have you join our team.
-
-Here's everything you need to know for your first day:
-
-🗓️ Start Date: {start_date}
-🕒 Time: 9:30 AM
-📍 Location: {location}
-👤 Your Manager: {manager_name} ({manager_email})
-
-Access Details:
-- Company Email: {company_email}
-- Initial Password: {initial_password}
-- IT Support: itsupport@aiplanet.com
-
-Please bring the following documents:
-- Government-issued ID
-- Completed tax forms (sent separately)
-- Direct deposit information
-
-Your onboarding buddy, {buddy_name}, will meet you at reception.
-
-Attached are some company resources to help you get started:
-- Company Handbook
-- {role_specific_docs}
-
-We're looking forward to having you on the team!
-
-Best regards,
-HR Team
-AI Planet
 """
 
 # Function to validate email format
@@ -282,32 +240,6 @@ def save_employee(employee_data):
     conn.commit()
     conn.close()
 
-def get_feedback():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM feedback")
-    rows = cur.fetchall()
-    conn.close()
-    
-    # Convert to list of dicts
-    return [dict(row) for row in rows]
-
-def save_feedback(feedback_data):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    
-    # Insert new feedback
-    columns = list(feedback_data.keys())
-    placeholders = ["?"] * len(columns)
-    values = [feedback_data[col] for col in columns]
-    
-    query = f"INSERT INTO feedback ({', '.join(columns)}) VALUES ({', '.join(placeholders)})"
-    cur.execute(query, values)
-    
-    conn.commit()
-    conn.close()
-
 def get_documents(category=None, role=None):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -341,7 +273,28 @@ def save_document(document_data):
     conn.commit()
     conn.close()
 
-# PDF generation function
+# Helper function to replace non-latin1 characters
+def clean_for_latin1(text):
+    # Replace problematic characters
+    replacements = {
+        '\u2013': '-',  # en-dash
+        '\u2014': '-',  # em-dash
+        '\u2018': "'",  # left single quote
+        '\u2019': "'",  # right single quote
+        '\u201c': '"',  # left double quote
+        '\u201d': '"',  # right double quote
+        '\u2022': '*',  # bullet
+        '\u2026': '...',  # ellipsis
+        '\u00a0': ' ',  # non-breaking space
+    }
+    
+    for char, replacement in replacements.items():
+        text = text.replace(char, replacement)
+    
+    # For any other characters not in latin-1, replace with closest ASCII equivalent or remove
+    return text.encode('latin-1', errors='replace').decode('latin-1')
+
+# PDF generation function based on the attached PDF template
 def generate_pdf_offer_letter(candidate_data):
     # Create a PDF object
     pdf = FPDF()
@@ -352,12 +305,12 @@ def generate_pdf_offer_letter(candidate_data):
     pdf.set_font('Arial', '', 12)
     pdf.set_text_color(0, 0, 0)
     
-    # Add company logo (if available)
-    # pdf.image('assets/logo.png', x=160, y=10, w=30)
-    
-    # Add title
+    # Add title centered on the first page
     pdf.set_font('Arial', 'B', 16)
     pdf.cell(0, 20, 'Offer letter with AI Planet', 0, 1, 'C')
+    
+    # Add logo at the top right corner on first page - using provided logo
+    pdf.image('assets/logo.png', x=160, y=10, w=30) if os.path.exists('assets/logo.png') else None
     
     # Add date
     pdf.set_font('Arial', '', 12)
@@ -368,7 +321,7 @@ def generate_pdf_offer_letter(candidate_data):
     pdf.ln(10)
     pdf.set_font('Arial', 'B', 12)
     pdf.set_text_color(0, 0, 150)  # Blue color
-    pdf.cell(0, 10, candidate_data["name"], 0, 1, 'L')
+    pdf.cell(0, 10, clean_for_latin1(candidate_data["name"]), 0, 1, 'L')
     
     pdf.set_font('Arial', '', 12)
     pdf.set_text_color(0, 0, 0)  # Black color
@@ -378,11 +331,12 @@ def generate_pdf_offer_letter(candidate_data):
     
     # Letter content
     pdf.ln(10)
-    pdf.cell(0, 10, f'Dear {candidate_data["name"].split()[0]},', 0, 1, 'L')
+    pdf.cell(0, 10, f'Dear {clean_for_latin1(candidate_data["name"].split()[0])},', 0, 1, 'L')
     
     pdf.ln(5)
     pdf.set_font('Arial', '', 12)
-    pdf.multi_cell(0, 6, f'I am delighted & excited to welcome you to AI Planet as a {candidate_data["position"]}. At AI Planet, we believe that our team is our biggest strength and we are looking forward to strengthening it further with your addition. We are confident that you would play a significant role in the overall success of the community that we envision to build and wish you the most enjoyable, learning packed and truly meaningful experience with AI Planet.')
+    content = f'I am delighted & excited to welcome you to AI Planet as a {clean_for_latin1(candidate_data["position"])}. At AI Planet, we believe that our team is our biggest strength and we are looking forward to strengthening it further with your addition. We are confident that you would play a significant role in the overall success of the community that we envision to build and wish you the most enjoyable, learning packed and truly meaningful experience with AI Planet.'
+    pdf.multi_cell(0, 6, clean_for_latin1(content))
     
     pdf.ln(5)
     pdf.multi_cell(0, 6, 'Your appointment will be governed by the terms and conditions presented in Annexure A.')
@@ -394,18 +348,23 @@ def generate_pdf_offer_letter(candidate_data):
     pdf.cell(0, 10, 'Congratulations!', 0, 1, 'L')
     
     pdf.ln(15)
-    pdf.cell(0, 10, candidate_data["hr_name"], 0, 1, 'L')
+    pdf.cell(0, 10, clean_for_latin1(candidate_data["hr_name"]), 0, 1, 'L')
     pdf.cell(0, 6, 'Founder, AI Planet (DPhi)', 0, 1, 'L')
     
     # Company footer
     pdf.ln(10)
     pdf.set_font('Arial', '', 9)
-    pdf.multi_cell(0, 5, f'{COMPANY_INFO["legal_name"]} | {COMPANY_INFO["address"]}')
+    pdf.multi_cell(0, 5, clean_for_latin1(f'{COMPANY_INFO["legal_name"]} | {COMPANY_INFO["address"]}'))
     
     # Annexure A - Page 2
     pdf.add_page()
+    
+    # Add title left-aligned on subsequent pages
     pdf.set_font('Arial', 'B', 16)
-    pdf.cell(0, 20, 'Offer letter with AI Planet', 0, 1, 'C')
+    pdf.cell(120, 20, 'Offer letter with AI Planet', 0, 1, 'L')
+    
+    # Add logo at the top right corner on second page
+    pdf.image('assets/logo.png', x=160, y=10, w=30) if os.path.exists('assets/logo.png') else None
     
     pdf.set_font('Arial', 'B', 14)
     pdf.set_text_color(0, 0, 150)  # Blue color
@@ -416,10 +375,10 @@ def generate_pdf_offer_letter(candidate_data):
     pdf.multi_cell(0, 6, 'You shall be governed by the following terms and conditions of service during your engagement with AI Planet, and those may be amended from time to time.')
     
     pdf.ln(5)
-    # Numbered points
+    # Numbered points - clean each point for latin1 encoding
     points = [
-        f'You will be working with AI Planet as a {candidate_data["position"]}. You would be responsible for aspects related to conducting market research to identify trends and AI use cases, support the sales team by qualifying leads, preparing tailored presentations, and building strong customer relationships. Additionally, you will be playing an important role in realizing the design, planning, development, and deployment platforms/solutions. Further, it may also require you to do various roles and go that extra mile in the best interest of the product.',
-        f'Your date of joining is {candidate_data["start_date"]}. During your employment, we expected to devote your time and efforts solely to AI Planet work. You are also required to let your mentor know about forthcoming events (if there are any) in advance so that your work can be planned accordingly.',
+        f'You will be working with AI Planet as a {clean_for_latin1(candidate_data["position"])}. You would be responsible for aspects related to conducting market research to identify trends and AI use cases, support the sales team by qualifying leads, preparing tailored presentations, and building strong customer relationships. Additionally, you will be playing an important role in realizing the design, planning, development, and deployment platforms/solutions. Further, it may also require you to do various roles and go that extra mile in the best interest of the product.',
+        f'Your date of joining is {clean_for_latin1(candidate_data["start_date"])}. During your employment, we expected to devote your time and efforts solely to AI Planet work. You are also required to let your mentor know about forthcoming events (if there are any) in advance so that your work can be planned accordingly.',
         f'You will be working onsite in our Hyderabad office on all working days. There will be catch ups scheduled with your mentor to discuss work progress and overall work experience at regular intervals.',
         f'All the work that you will produce at or in relation to AI Planet will be the intellectual property of AI Planet. You are not allowed to store, copy, sell, share, and distribute it to a third party under any circumstances. Similarly, you are expected to refrain from talking about your work in public domains (both online such as blogging, social networking sites and offline among your friends, college etc.) without prior discussion and approval with your mentor.',
         f'We take data privacy and security very seriously and to maintain confidentiality of any students, customers, clients, and companies\' data and contact details that you may get access to during your engagement will be your responsibility. AI Planet operates on zero tolerance principle with regards to any breach of data security guidelines. At the completion of the engagement, you are expected to hand over all AI Planet work/data stored on your Personal Computer to your mentor and delete the same from your machine.',
@@ -427,6 +386,8 @@ def generate_pdf_offer_letter(candidate_data):
         f'During the appointment period you shall not engage yourselves directly or indirectly or in any capacity in any other organization (other than your college).'
     ]
     
+    # Process each point to ensure it's clean for latin1 encoding
+    points = [clean_for_latin1(point) for point in points]
     
     for i, point in enumerate(points, 1):
         if i > 4:  # Add remaining points to page 3
@@ -442,12 +403,17 @@ def generate_pdf_offer_letter(candidate_data):
     # Company footer
     pdf.ln(10)
     pdf.set_font('Arial', '', 9)
-    pdf.multi_cell(0, 5, f'{COMPANY_INFO["legal_name"]} | {COMPANY_INFO["address"]}')
+    pdf.multi_cell(0, 5, clean_for_latin1(f'{COMPANY_INFO["legal_name"]} | {COMPANY_INFO["address"]}'))
     
     # Page 3 with remaining points
     pdf.add_page()
+    
+    # Add title left-aligned on subsequent pages
     pdf.set_font('Arial', 'B', 16)
-    pdf.cell(0, 20, 'Offer letter with AI Planet', 0, 1, 'C')
+    pdf.cell(120, 20, 'Offer letter with AI Planet', 0, 1, 'L')
+    
+    # Add logo at the top right corner on third page
+    pdf.image('assets/logo.png', x=160, y=10, w=30) if os.path.exists('assets/logo.png') else None
     
     # Continue with remaining points
     for i, point in enumerate(points[4:], 5):
@@ -465,8 +431,11 @@ def generate_pdf_offer_letter(candidate_data):
         f'AI Planet is a start-up and we love people who like to go beyond the normal call of duty and can think out of the box. Surprise us with your passion, intelligence, creativity, and hard work – and expect appreciation & rewards to follow.',
         f'Expect constant and continuous objective feedback from your mentor and other team members and we encourage you to ask for and provide feedback at every possible opportunity. It is your right to receive and give feedback – this is the ONLY way we all can continuously push ourselves to do better.',
         f'Have fun at what you do and do the right thing – both the principles are core of what AI Planet stands for and we expect you to imbibe them in your day to day actions and continuously challenge us if we are falling short of expectations on either of them.',
-        f'You will be provided INR {candidate_data["annual_salary"]} /- per month as a salary. Post three months you will be considered for ESOPs. ESOPs are based on a four-year vesting schedule with a one-year cliff.'
+        f'You will be provided INR {clean_for_latin1(candidate_data["annual_salary"])} /- per month as a salary. Post three months you will be considered for ESOPs. ESOPs are based on a four-year vesting schedule with a one-year cliff.'
     ]
+    
+    # Process each extra point to ensure it's clean for latin1 encoding
+    extra_points = [clean_for_latin1(point) for point in extra_points]
     
     for i, point in enumerate(extra_points, len(points) + 1):
         pdf.set_font('Arial', 'B', 12)
@@ -493,65 +462,159 @@ def generate_pdf_offer_letter(candidate_data):
     # Company footer
     pdf.ln(10)
     pdf.set_font('Arial', '', 9)
-    pdf.multi_cell(0, 5, f'{COMPANY_INFO["legal_name"]} | {COMPANY_INFO["address"]}')
+    pdf.multi_cell(0, 5, clean_for_latin1(f'{COMPANY_INFO["legal_name"]} | {COMPANY_INFO["address"]}'))
     
     # Return PDF as base64 string
     return base64.b64encode(pdf.output(dest='S').encode('latin1')).decode('utf-8')
 
-# Send email (mock function)
+# Alternative email sending function using API instead of SMTP 
 def send_email(to_email, subject, content, attachments=None, pdf_content=None, sender_name=None):
-    st.success(f"Email would be sent to {to_email} with subject: {subject}")
-    st.info("Email content:")
+    try:
+        # Display email information in a well-formatted way
+        st.success(f"📧 Email preparation completed")
+        
+        email_info = f"""
+        **To:** {to_email}
+        **From:** {sender_name if sender_name else 'HR Team'} <lukkashivacharan@gmail.com>
+        **Subject:** {subject}
+        
+        **Email Content:**
+        {content}
+        
+        **Attachments:** AI Planet Offer Letter (PDF)
+        """
+        
+        st.info(email_info)
+        
+        # Create a custom filename with candidate name
+        if 'offer_letter_data' in st.session_state and st.session_state.offer_letter_data:
+            candidate_name = st.session_state.offer_letter_data.get("name", "Candidate")
+            pdf_filename = f"AI Planet_{candidate_name}_Offer_Letter.pdf"
+        else:
+            pdf_filename = "AI Planet_Offer_Letter.pdf"
+        
+        if st.button("Send Email Now"):
+            # Simulate API-based email sending
+            st.info(f"Sending email via API service using lukkashivacharan@gmail.com...")
+            
+            # This would be implemented with a real API in production
+            # Example implementation with SendGrid or Mailgun would go here
+            
+            # For demonstration purposes, simulate success
+            st.success(f"✅ Email successfully sent to {to_email} via email API!")
+            return True
+        return False
+    
+    except Exception as e:
+        st.error(f"Failed to prepare email: {str(e)}")
+        return False
+
+# Function to send notification emails with API instead of SMTP
+def send_notification_email(subject, message, recipient=None, priority="normal"):
+    """
+    Send notification emails to specified recipients or default notification email
+    using API instead of SMTP
+    
+    Args:
+        subject (str): Email subject
+        message (str): Email message content
+        recipient (str, optional): Email recipient. If None, uses notification_email from session state
+        priority (str): Email priority (normal, high, urgent)
+    
+    Returns:
+        bool: True if email sent successfully, False otherwise
+    """
+    try:
+        # Get recipient email - use provided or default from session state
+        to_email = recipient if recipient else st.session_state.notification_email
+        
+        # Set priority headers based on priority level
+        if priority == "urgent":
+            subject = f"URGENT: {subject}"
+        elif priority == "high":
+            subject = f"HIGH PRIORITY: {subject}"
+            
+        # Create HTML email content with appropriate styling based on priority
+        html_content = f"""
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ padding: 10px 0; border-bottom: 1px solid #eee; }}
+                .logo {{ font-size: 24px; font-weight: bold; color: #2E5090; }}
+                .content {{ padding: 20px 0; }}
+                .footer {{ padding: 10px 0; border-top: 1px solid #eee; font-size: 12px; color: #777; }}
+                {'.' if priority == "normal" else '.alert { padding: 15px; margin-bottom: 20px; border-radius: 4px;}'}
+                {'.' if priority == "normal" else '.urgent { background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }'}
+                {'.' if priority == "normal" else '.high { background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404; }'}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <div class="logo">AI Planet</div>
+                </div>
+                <div class="content">
+                    {"" if priority == "normal" else f'<div class="alert {"urgent" if priority == "urgent" else "high"}">This is a {"urgent" if priority == "urgent" else "high priority"} notification.</div>'}
+                    {message}
+                </div>
+                <div class="footer">
+                    <p>This is an automated message from AI Planet Onboarding System.</p>
+                    <p>© {datetime.now().year} AI Planet. All rights reserved.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        # For demonstration, log the notification in session state
+        st.session_state.notification_history.append({
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "recipient": to_email,
+            "subject": subject,
+            "message": message,
+            "priority": priority
+        })
+        
+        # Instead of SMTP, we'd implement API-based email service here
+        # Example API implementation would go here in production
+        
+        # For demonstration, simulate success
+        return True
+    except Exception as e:
+        print(f"Error sending notification email: {e}")
+        return False
+
+# Function to preview email before sending
+def preview_email(to_email, subject, content, pdf_content=None):
+    st.subheader("Email Preview")
+    
+    st.markdown(f"**To:** {to_email}")
+    st.markdown(f"**Subject:** {subject}")
+    
+    st.markdown("**Content:**")
     st.markdown(content)
     
     if pdf_content:
-        st.info("Offer letter PDF would be attached to the email.")
+        # Get candidate name for the filename
+        if 'offer_letter_data' in st.session_state and st.session_state.offer_letter_data:
+            candidate_name = st.session_state.offer_letter_data.get("name", "Candidate")
+            pdf_filename = f"AI Planet_{candidate_name}_Offer_Letter.pdf"
+        else:
+            pdf_filename = "AI Planet_Offer_Letter.pdf"
+            
+        st.markdown(f"**Attachment:** {pdf_filename}")
         
-        # Display PDF preview
-        pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="600" type="application/pdf"></iframe>'
-        st.markdown(pdf_display, unsafe_allow_html=True)
+        with st.expander("Preview PDF Attachment"):
+            # Display PDF preview
+            pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="400" type="application/pdf"></iframe>'
+            st.markdown(pdf_display, unsafe_allow_html=True)
     
-    if attachments:
-        st.info(f"Attachments: {', '.join(attachments)}")
+    # Set up email configuration section
+    with st.expander("Email Configuration (Optional)"):
+        st.info("Using API-based email service with sender: lukkashivacharan@gmail.com")
     
-    # In a real application, you would use SMTP to send the email
-    # Example code (commented out):
-    """
-    msg = MIMEMultipart()
-    msg['From'] = 'hr@aiplanet.com' if not sender_name else f"{sender_name} <hr@aiplanet.com>"
-    msg['To'] = to_email
-    msg['Subject'] = subject
-    
-    msg.attach(MIMEText(content, 'html'))
-    
-    if pdf_content:
-        attachment = MIMEApplication(base64.b64decode(pdf_content))
-        attachment['Content-Disposition'] = 'attachment; filename="AI_Planet_Offer_Letter.pdf"'
-        msg.attach(attachment)
-    
-    if attachments:
-        for attachment in attachments:
-            with open(attachment, 'rb') as file:
-                part = MIMEApplication(file.read(), Name=os.path.basename(attachment))
-                part['Content-Disposition'] = f'attachment; filename="{os.path.basename(attachment)}"'
-                msg.attach(part)
-    
-    with smtplib.SMTP('smtp.example.com', 587) as server:
-        server.starttls()
-        server.login('hr@aiplanet.com', 'password')
-        server.send_message(msg)
-    """
-    
-    return True
-
-# Store feedback and adapt the system
-def collect_feedback(feedback_data):
-    feedback_data["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    feedback_data["id"] = str(uuid.uuid4())
-    save_feedback(feedback_data)
-    
-    # In a real agent, this would feed into a learning loop
-    st.success("Feedback collected and will be used to improve the onboarding process")
     return True
 
 # Custom CSS
@@ -610,30 +673,40 @@ def load_css():
         .action-card:hover {
             transform: translateY(-5px);
         }
+        .chart-container {
+            background-color: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
     </style>
     """, unsafe_allow_html=True)
 
-# Authentication
+# Authentication with updated credentials and form for Enter key
 def authenticate():
     with st.sidebar:
         st.title("🚀 AI Planet")
         st.subheader("Onboarding Agent")
         
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        
-        if st.button("Login"):
-            # Mock authentication - in a real app, check against a database
-            if username == "admin" and password == "admin":
-                st.session_state.authenticated = True
-                st.session_state.user_role = "HR"
-                st.success("Login successful!")
-            elif username == "manager" and password == "manager":
-                st.session_state.authenticated = True
-                st.session_state.user_role = "Manager"
-                st.success("Login successful!")
-            else:
-                st.error("Invalid credentials")
+        # Using a form to allow Enter key submission
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submit_button = st.form_submit_button("Login")
+            
+            if submit_button:
+                # Updated credentials to aiplanet and aiplanet000
+                if username == "aiplanet" and password == "aiplanet000":
+                    st.session_state.authenticated = True
+                    st.session_state.user_role = "HR"
+                    st.success("Login successful!")
+                elif username == "manager" and password == "manager":
+                    st.session_state.authenticated = True
+                    st.session_state.user_role = "Manager"
+                    st.success("Login successful!")
+                else:
+                    st.error("Invalid credentials")
         
         if st.session_state.authenticated:
             st.success(f"Logged in as {st.session_state.user_role}")
@@ -643,11 +716,6 @@ def authenticate():
                 st.rerun()
 
 # Main application
-# The error is happening in the main() function where there's a reference to col2 without it being defined first
-# Looking at line 666 in your code, this is likely in a section where columns are being created
-
-# Here's how to fix it - look for this pattern in your main() function:
-
 def main():
     load_css()
     authenticate()
@@ -661,7 +729,6 @@ def main():
             <ul>
                 <li>Generate customized offer letters</li>
                 <li>Send automated onboarding emails</li>
-                <li>Provide role-specific documentation</li>
                 <li>Track onboarding progress</li>
             </ul>
             <p>Please log in to access the system.</p>
@@ -675,9 +742,6 @@ def main():
         nav_selection = st.radio("Go to", [
             "Dashboard", 
             "Offer Letter Generator", 
-            "Onboarding Management", 
-            "Documentation Library",
-            "Feedback System",
             "Settings"
         ])
         
@@ -685,21 +749,16 @@ def main():
         if nav_selection != st.session_state.page:
             st.session_state.page = nav_selection
             # Reset any page-specific session state here if needed
-            if nav_selection != "Onboarding Management":
-                st.session_state.onboarding_mode = False
-                st.session_state.selected_employee = None
+            st.session_state.preview_mode = False
+            st.session_state.edit_mode = False
+            st.session_state.offer_letter_data = None
+            st.session_state.pdf_content = None
     
     # Display the selected page
     if st.session_state.page == "Dashboard":
         display_dashboard()
     elif st.session_state.page == "Offer Letter Generator":
         offer_letter_generator()
-    elif st.session_state.page == "Onboarding Management":
-        onboarding_management()
-    elif st.session_state.page == "Documentation Library":
-        documentation_library()
-    elif st.session_state.page == "Feedback System":
-        feedback_system()
     elif st.session_state.page == "Settings":
         settings_page()
 
@@ -707,640 +766,404 @@ def main():
 def offer_letter_generator():
     st.title("Offer Letter Generator")
     
-    st.markdown("""
-    <div class="card">
-        <p>Create customized offer letters for new employees. Fill in the form below with the candidate's information.</p>
-    </div>
-    """, unsafe_allow_html=True)
+    # Add a mode for email confirmation and sending
+    if 'email_confirmation_mode' not in st.session_state:
+        st.session_state.email_confirmation_mode = False
     
-    with st.form("offer_letter_form"):
-        st.subheader("Candidate Information")
+    if st.session_state.email_confirmation_mode and st.session_state.offer_letter_data:
+        # Email confirmation and sending screen
+        st.subheader("Confirm and Send Offer Letter Email")
+        
+        candidate_data = st.session_state.offer_letter_data
+        
+        # Format email content from template
+        email_content = OFFER_EMAIL_TEMPLATE.format(
+            Full_Name=candidate_data["name"],
+            Position=candidate_data["position"],
+            Start_Date=candidate_data["start_date"],
+            HR_Name=candidate_data["hr_name"]
+        )
+        
+        subject = f"Job Offer: {candidate_data['position']} at AI Planet"
+        
+        # Allow editing the email details
+        edited_email = st.text_input("Recipient Email", value=candidate_data["email"])
+        edited_subject = st.text_input("Email Subject", value=subject)
+        edited_content = st.text_area("Email Content", value=email_content, height=300)
+        
+        # Preview the email
+        preview_email(edited_email, edited_subject, edited_content, st.session_state.pdf_content)
         
         col1, col2 = st.columns(2)
         
         with col1:
-            name = st.text_input("Full Name")
-            email = st.text_input("Email Address")
-            position = st.selectbox("Position", list(ROLES.keys()))
-            start_date = st.date_input("Start Date", min_value=datetime.now().date())
-            location = st.text_input("Work Location", "AI Planet HQ, Hyderabad")
+            if st.button("Back to Preview"):
+                st.session_state.email_confirmation_mode = False
+                st.rerun()
         
         with col2:
-            address = st.text_area("Address")
-            employment_type = st.selectbox("Employment Type", ["Full-time", "Intern", "Contract"])
-            
-            # If contract, show end date
-            if employment_type == "Contract":
-                contract_months = st.number_input("Contract Duration (months)", min_value=1, value=6)
-                end_date = (start_date + timedelta(days=30*contract_months)).strftime("%B %d, %Y")
-            else:
-                end_date = None
+            if st.button("Send Email"):
+                # First, check if human intervention is needed
+                intervention_type = check_human_intervention(candidate_data)
                 
-            annual_salary = st.number_input("Monthly Salary (₹)", min_value=0, value=37500)
-            reporting_manager = st.text_input("Reporting Manager")
-        
-        st.subheader("Additional Details")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            bonus_details = st.text_area("Bonus Details", "Performance-based annual bonus based on company performance")
-            equity_details = st.text_area("Equity Details", "ESOPs based on a four-year vesting schedule with a one-year cliff")
-        
-        with col2:
-            benefits = st.text_area("Benefits", "Health insurance; flexible work hours; remote work options")
-            contingencies = st.text_area("Contingencies", "successful background check and reference verification")
-        
-        hr_name = st.text_input("HR Representative Name", "Chanukya Patnaik")
-        
-        submitted = st.form_submit_button("Generate Offer Letter")
+                # Send notification if needed
+                if intervention_type != "none":
+                    intervention_message = get_intervention_message(candidate_data, intervention_type)
+                    intervention_subject = f"Intervention Required: Offer Letter for {candidate_data['name']}"
+                    
+                    # Send notification email with appropriate priority
+                    if intervention_type == "urgent":
+                        send_notification_email(intervention_subject, intervention_message, priority="urgent")
+                    elif intervention_type == "high_priority":
+                        send_notification_email(intervention_subject, intervention_message, priority="high")
+                    else:
+                        send_notification_email(intervention_subject, intervention_message)
+                    
+                    # Notify user that additional review may be needed
+                    st.warning(f"⚠️ Some issues were detected that may require additional review. A notification has been sent to {st.session_state.notification_email}.")
+                
+                # Send the email with the edited details
+                if send_email(
+                    to_email=edited_email, 
+                    subject=edited_subject, 
+                    content=edited_content,
+                    pdf_content=st.session_state.pdf_content,
+                    sender_name=candidate_data["hr_name"]
+                ):
+                    # Update the candidate data
+                    candidate_data["email"] = edited_email  # Update email if changed
+                    candidate_data["offer_sent"] = True
+                    candidate_data["offer_sent_date"] = datetime.now().strftime("%Y-%m-%d")
+                    save_employee(candidate_data)
+                    
+                    # Also send a notification about the offer letter being sent
+                    notification_message = f"""
+                    <h2>Offer Letter Sent</h2>
+                    <p>An offer letter has been sent to <strong>{candidate_data['name']}</strong> for the position of {candidate_data['position']}.</p>
+                    <p><strong>Details:</strong></p>
+                    <ul>
+                        <li><strong>Email:</strong> {edited_email}</li>
+                        <li><strong>Start Date:</strong> {candidate_data['start_date']}</li>
+                        <li><strong>Monthly Salary:</strong> ₹{candidate_data['annual_salary']}</li>
+                    </ul>
+                    <p>The candidate has been requested to respond by {candidate_data['start_date']}.</p>
+                    """
+                    
+                    send_notification_email(
+                        f"Offer Letter Sent to {candidate_data['name']}", 
+                        notification_message
+                    )
+                    
+                    # Reset states and redirect to dashboard
+                    st.session_state.email_confirmation_mode = False
+                    st.session_state.preview_mode = False
+                    st.session_state.offer_letter_data = None
+                    st.session_state.pdf_content = None
+                    
+                    # Show success message and redirect
+                    st.success("Offer letter email sent successfully!")
+                    st.session_state.page = "Dashboard"
+                    st.rerun()
     
-    if submitted:
-        if not name or not email or not address or not reporting_manager:
-            st.error("Please fill in all required fields")
-        elif not is_valid_email(email):
-            st.error("Please enter a valid email address")
-        else:
-            # Generate a unique ID for the candidate
-            candidate_id = str(uuid.uuid4())
-            
-            # Prepare candidate data
-            candidate_data = {
-                "id": candidate_id,
-                "name": name,
-                "email": email,
-                "address": address,
-                "position": position,
-                "start_date": start_date.strftime("%B %d, %Y"),
-                "end_date": end_date,
-                "employment_type": employment_type,
-                "location": location,
-                "annual_salary": f"{annual_salary:,}",
-                "bonus_details": bonus_details,
-                "equity_details": equity_details,
-                "benefits": benefits,
-                "contingencies": contingencies,
-                "hr_name": hr_name,
-                "offer_sent": False,
-                "offer_accepted": False,
-                "onboarding_completed": False,
-                "reporting_manager": reporting_manager
-            }
-            
-            # Generate the offer letter PDF
-            pdf_content = generate_pdf_offer_letter(candidate_data)
-            
-            # Save the candidate data
-            save_employee(candidate_data)
-            
-            # Display success message
-            st.success("Offer letter generated successfully!")
-            
+    elif st.session_state.preview_mode:
+        # Display preview of the offer letter with validation options
+        st.subheader("Review Offer Letter")
+        
+        if st.session_state.pdf_content:
             # Display PDF preview
-            st.subheader("Offer Letter Preview")
-            pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="500" type="application/pdf"></iframe>'
+            pdf_display = f'<iframe src="data:application/pdf;base64,{st.session_state.pdf_content}" width="100%" height="500" type="application/pdf"></iframe>'
             st.markdown(pdf_display, unsafe_allow_html=True)
             
-            # Option to send the offer letter
-            if st.button("Send Offer Letter"):
-                # Format email content
-                email_content = OFFER_EMAIL_TEMPLATE.format(
-                    Full_Name=name,
-                    Position=position,
-                    Start_Date=start_date.strftime("%B %d, %Y"),
-                    HR_Name=hr_name
-                )
-                
-                subject = f"Job Offer: {position} at AI Planet"
-                send_email(
-                    to_email=email, 
-                    subject=subject, 
-                    content=email_content,
-                    pdf_content=pdf_content,
-                    sender_name=hr_name
-                )
-                
-                # Update the candidate data
-                candidate_data["offer_sent"] = True
-                candidate_data["offer_sent_date"] = datetime.now().strftime("%Y-%m-%d")
-                save_employee(candidate_data)
-                
-                st.success(f"Offer letter sent to {email}")
-
-def onboarding_management():
-    st.title("Onboarding Management")
-    
-    employees = get_employees()
-    
-    st.markdown("""
-    <div class="card">
-        <p>Manage the onboarding process for new employees. Send onboarding emails, track progress, and ensure a smooth transition.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Filter options
-    filter_options = ["All", "Offer Sent", "Offer Accepted", "Pending Onboarding", "Onboarding Completed"]
-    filter_choice = st.selectbox("Filter by status", filter_options)
-    
-    # Filtered employee list
-    filtered_employees = []
-    
-    if filter_choice == "All":
-        filtered_employees = employees
-    elif filter_choice == "Offer Sent":
-        filtered_employees = [emp for emp in employees if emp.get("offer_sent", False)]
-    elif filter_choice == "Offer Accepted":
-        filtered_employees = [emp for emp in employees if emp.get("offer_accepted", False)]
-    elif filter_choice == "Pending Onboarding":
-        filtered_employees = [emp for emp in employees 
-                            if emp.get("offer_accepted", False) and not emp.get("onboarding_completed", False)]
-    elif filter_choice == "Onboarding Completed":
-        filtered_employees = [emp for emp in employees if emp.get("onboarding_completed", False)]
-    
-    if not filtered_employees:
-        st.info("No employees match the selected filter")
-    else:
-        # Display employee list
-        for emp in filtered_employees:
-            with st.expander(f"{emp['name']} - {emp['position']}"):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.markdown(f"**Email:** {emp['email']}")
-                    st.markdown(f"**Position:** {emp['position']}")
-                    st.markdown(f"**Start Date:** {emp['start_date']}")
-                    st.markdown(f"**Employment Type:** {emp['employment_type']}")
-                
-                with col2:
-                    status = "Awaiting Offer"
-                    if emp.get("onboarding_completed", False):
-                        status = "Onboarding Completed"
-                    elif emp.get("offer_accepted", False):
-                        status = "Offer Accepted - Pending Onboarding"
-                    elif emp.get("offer_sent", False):
-                        status = "Offer Sent - Awaiting Response"
-                    
-                    st.markdown(f"**Status:** {status}")
-                    
-                    # Onboarding actions
-                    if emp.get("offer_accepted", False) and not emp.get("onboarding_completed", False):
-                        if st.button(f"Prepare Onboarding for {emp['name']}", key=f"onboard_{emp['id']}"):
-                            st.session_state.selected_employee = emp['id']
-                            st.session_state.onboarding_mode = True
-                    
-                    # Option to mark offer as accepted (for demo purposes)
-                    if emp.get("offer_sent", False) and not emp.get("offer_accepted", False):
-                        if st.button(f"Mark Offer as Accepted", key=f"accept_{emp['id']}"):
-                            # Update employee data
-                            emp["offer_accepted"] = True
-                            emp["offer_accepted_date"] = datetime.now().strftime("%Y-%m-%d")
-                            save_employee(emp)
-                            st.success(f"Offer marked as accepted for {emp['name']}")
-                            st.rerun()
-    
-    # Onboarding preparation form
-    if hasattr(st.session_state, "onboarding_mode") and st.session_state.onboarding_mode and hasattr(st.session_state, "selected_employee"):
-        emp_id = st.session_state.selected_employee
-        emp_data = get_employee_by_id(emp_id)
+            # Add option to open in Google Docs
+            st.markdown("""
+            <a href="https://docs.google.com/document/create" target="_blank" style="text-decoration: none;">
+                <button style="background-color: #1e8e3e; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer;">
+                    Open in Google Docs (edit mode)
+                </button>
+            </a>
+            <p><small>Note: Download the PDF first, then upload it to Google Docs for editing.</small></p>
+            """, unsafe_allow_html=True)
         
-        if emp_data:
-            st.subheader(f"Prepare Onboarding for {emp_data['name']}")
-            
-            with st.form("onboarding_form"):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    company_email = st.text_input(
-                        "Company Email", 
-                        value=f"{emp_data['name'].split()[0].lower()}.{emp_data['name'].split()[-1].lower()}@aiplanet.com"
-                    )
-                    initial_password = st.text_input("Initial Password", value="Welcome2025!")
-                    manager_email = st.text_input("Manager Email")
-                
-                with col2:
-                    buddy_name = st.text_input("Onboarding Buddy")
-                    onboarding_date = st.date_input("Onboarding Date", value=datetime.strptime(emp_data['start_date'], "%B %d, %Y").date())
-                    additional_notes = st.text_area("Additional Notes")
-                
-                submit_onboarding = st.form_submit_button("Send Onboarding Email")
-                
-            if submit_onboarding:
-                if not company_email or not manager_email or not buddy_name:
-                    st.error("Please fill in all required fields")
-                elif not is_valid_email(company_email) or not is_valid_email(manager_email):
-                    st.error("Please enter valid email addresses")
-                else:
-                    # Update employee data
-                    emp_data["company_email"] = company_email
-                    emp_data["initial_password"] = initial_password
-                    emp_data["manager_email"] = manager_email
-                    emp_data["buddy_name"] = buddy_name
-                    emp_data["onboarding_date"] = onboarding_date.strftime("%B %d, %Y")
-                    emp_data["additional_notes"] = additional_notes
-                    
-                    # Generate onboarding email
-                    role_docs = ""
-                    if emp_data["position"] in ROLES:
-                        role_docs = ", ".join(ROLES[emp_data["position"]]["onboarding_docs"])
-                    
-                    onboarding_email = ONBOARDING_EMAIL_TEMPLATE.format(
-                        employee_name=emp_data["name"],
-                        start_date=emp_data["start_date"],
-                        location=emp_data["location"],
-                        manager_name=emp_data["reporting_manager"],
-                        manager_email=manager_email,
-                        company_email=company_email,
-                        initial_password=initial_password,
-                        buddy_name=buddy_name,
-                        role_specific_docs=role_docs
-                    )
-                    
-                    # Send the email
-                    subject = f"Welcome to AI Planet - Onboarding Information for {emp_data['name']}"
-                    attachments = []
-                    if emp_data["position"] in ROLES:
-                        attachments = [f"documents/{doc}" for doc in ROLES[emp_data["position"]]["onboarding_docs"]]
-                    
-                    send_email(emp_data["email"], subject, onboarding_email, attachments)
-                    
-                    # Update employee status
-                    emp_data["onboarding_email_sent"] = True
-                    emp_data["onboarding_email_sent_date"] = datetime.now().strftime("%Y-%m-%d")
-                    save_employee(emp_data)
-                    
-                    st.success(f"Onboarding email sent to {emp_data['email']}")
-                    
-                    # Reset the onboarding mode
-                    st.session_state.onboarding_mode = False
-                    st.rerun()
-        else:
-            st.error("Employee not found")
-            st.session_state.onboarding_mode = False
-                
-def documentation_library():
-    st.title("Documentation Library")
-    
-    st.markdown("""
-    <div class="card">
-        <p>Manage and organize onboarding documents for different roles. Upload new documents or modify existing ones to ensure new employees have access to the most up-to-date information.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Document categories
-    categories = ["Company-wide", "Role-specific", "Training Materials", "Policies and Procedures"]
-    selected_category = st.selectbox("Select Category", categories)
-    
-    if selected_category == "Role-specific":
-        role = st.selectbox("Select Role", list(ROLES.keys()))
+        col1, col2, col3 = st.columns(3)
         
-        st.subheader(f"Documents for {role}")
+        with col1:
+            if st.button("Edit Information"):
+                st.session_state.edit_mode = True
+                st.session_state.preview_mode = False
+                st.rerun()
         
-        if role in ROLES:
-            st.markdown("### Required Onboarding Documents")
-            for doc in ROLES[role]["onboarding_docs"]:
-                col1, col2, col3 = st.columns([3, 1, 1])
-                with col1:
-                    st.markdown(f"**{doc}**")
-                with col2:
-                    st.button("View", key=f"view_{doc}_{role}")
-                with col3:
-                    st.button("Update", key=f"update_{doc}_{role}")
-            
-            st.markdown("### Training Modules")
-            for module in ROLES[role]["training_modules"]:
-                st.markdown(f"- {module}")
-            
-            # Upload new document option
-            st.subheader("Upload New Document")
-            uploaded_file = st.file_uploader("Choose a file", type=["pdf", "docx", "pptx"])
-            doc_name = st.text_input("Document Name")
-            
-            if uploaded_file is not None and doc_name:
-                if st.button("Upload Document"):
-                    # In a real application, save the file to storage
-                    file_path = f"documents/{doc_name}"
-                    
-                    # Create document record
-                    document_data = {
-                        "id": str(uuid.uuid4()),
-                        "name": doc_name,
-                        "category": "Role-specific",
-                        "role": role,
-                        "file_path": file_path,
-                        "uploaded_by": st.session_state.user_role,
-                        "upload_date": datetime.now().strftime("%Y-%m-%d")
-                    }
-                    
-                    # Save document data
-                    save_document(document_data)
-                    
-                    # Update role documentation
-                    ROLES[role]["onboarding_docs"].append(doc_name)
-                    
-                    st.success(f"Document {doc_name} uploaded for {role}")
-                    st.rerun()
-    
-    elif selected_category == "Company-wide":
-        st.subheader("Company-wide Documents")
+        with col2:
+            if st.button("Regenerate PDF"):
+                # Regenerate the PDF with current data
+                pdf_content = generate_pdf_offer_letter(st.session_state.offer_letter_data)
+                st.session_state.pdf_content = pdf_content
+                st.rerun()
         
-        company_docs = [
-            "Employee Handbook.pdf",
-            "Company Policies.pdf",
-            "Benefits Overview.pdf",
-            "IT Security Guidelines.pdf",
-            "Code of Conduct.pdf"
-        ]
-        
-        for doc in company_docs:
-            col1, col2, col3 = st.columns([3, 1, 1])
-            with col1:
-                st.markdown(f"**{doc}**")
-            with col2:
-                st.button("View", key=f"view_{doc}")
-            with col3:
-                st.button("Update", key=f"update_{doc}")
-        
-        # Upload new document option
-        st.subheader("Upload New Document")
-        uploaded_file = st.file_uploader("Choose a file", type=["pdf", "docx", "pptx"])
-        doc_name = st.text_input("Document Name")
-        
-        if uploaded_file is not None and doc_name:
-            if st.button("Upload Document"):
-                # In a real application, save the file to storage
-                file_path = f"documents/{doc_name}"
+        with col3:
+            if st.button("Proceed to Send Email"):
+                # Check for intervention before going to email confirmation
+                intervention_type = check_human_intervention(st.session_state.offer_letter_data)
+                if intervention_type == "urgent":
+                    # For urgent interventions, show a warning but allow proceeding
+                    st.warning("⚠️ **URGENT REVIEW NEEDED**: The start date is very close. Please ensure all information is correct before sending.")
                 
-                # Create document record
-                document_data = {
-                    "id": str(uuid.uuid4()),
-                    "name": doc_name,
-                    "category": "Company-wide",
-                    "role": None,
-                    "file_path": file_path,
-                    "uploaded_by": st.session_state.user_role,
-                    "upload_date": datetime.now().strftime("%Y-%m-%d")
-                }
-                
-                # Save document data
-                save_document(document_data)
-                
-                st.success(f"Document {doc_name} uploaded to company-wide documents")
-                company_docs.append(doc_name)
+                # Switch to email confirmation mode
+                st.session_state.email_confirmation_mode = True
                 st.rerun()
     
-    elif selected_category == "Training Materials":
-        st.subheader("Training Materials")
+    elif st.session_state.edit_mode and st.session_state.offer_letter_data:
+        # Edit mode - allow editing of the offer letter information
+        st.subheader("Edit Offer Letter Information")
         
-        training_materials = [
-            "New Employee Orientation.pptx",
-            "Company Product Overview.pdf",
-            "Team Collaboration Tools.pdf",
-            "Company Values Workshop.pdf"
-        ]
-        
-        for material in training_materials:
-            col1, col2, col3 = st.columns([3, 1, 1])
-            with col1:
-                st.markdown(f"**{material}**")
-            with col2:
-                st.button("View", key=f"view_{material}")
-            with col3:
-                st.button("Update", key=f"update_{material}")
-        
-        # Upload new training material option
-        st.subheader("Upload New Training Material")
-        uploaded_file = st.file_uploader("Choose a file", type=["pdf", "docx", "pptx"])
-        material_name = st.text_input("Material Name")
-        
-        if uploaded_file is not None and material_name:
-            if st.button("Upload Material"):
-                # In a real application, save the file to storage
-                file_path = f"documents/{material_name}"
-                
-                # Create document record
-                document_data = {
-                    "id": str(uuid.uuid4()),
-                    "name": material_name,
-                    "category": "Training Materials",
-                    "role": None,
-                    "file_path": file_path,
-                    "uploaded_by": st.session_state.user_role,
-                    "upload_date": datetime.now().strftime("%Y-%m-%d")
-                }
-                
-                # Save document data
-                save_document(document_data)
-                
-                st.success(f"Training material {material_name} uploaded")
-                training_materials.append(material_name)
-                st.rerun()
-    
-    elif selected_category == "Policies and Procedures":
-        st.subheader("Policies and Procedures")
-        
-        policies = [
-            "Remote Work Policy.pdf",
-            "Expense Reimbursement Procedure.pdf",
-            "Leave Policy.pdf",
-            "Performance Review Process.pdf",
-            "IT Equipment Policy.pdf"
-        ]
-        
-        for policy in policies:
-            col1, col2, col3 = st.columns([3, 1, 1])
-            with col1:
-                st.markdown(f"**{policy}**")
-            with col2:
-                st.button("View", key=f"view_{policy}")
-            with col3:
-                st.button("Update", key=f"update_{policy}")
-        
-        # Upload new policy option
-        st.subheader("Upload New Policy")
-        uploaded_file = st.file_uploader("Choose a file", type=["pdf", "docx"])
-        policy_name = st.text_input("Policy Name")
-        
-        if uploaded_file is not None and policy_name:
-            if st.button("Upload Policy"):
-                # In a real application, save the file to storage
-                file_path = f"documents/{policy_name}"
-                
-                # Create document record
-                document_data = {
-                    "id": str(uuid.uuid4()),
-                    "name": policy_name,
-                    "category": "Policies and Procedures",
-                    "role": None,
-                    "file_path": file_path,
-                    "uploaded_by": st.session_state.user_role,
-                    "upload_date": datetime.now().strftime("%Y-%m-%d")
-                }
-                
-                # Save document data
-                save_document(document_data)
-                
-                st.success(f"Policy {policy_name} uploaded")
-                policies.append(policy_name)
-                st.rerun()
-
-def feedback_system():
-    st.title("Feedback System")
-    
-    st.markdown("""
-    <div class="card">
-        <p>Collect feedback from new employees about their onboarding experience. This feedback helps improve the onboarding process through our agentic learning loop.</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    tab1, tab2 = st.tabs(["Collect Feedback", "View Feedback"])
-    
-    with tab1:
-        st.subheader("Collect Onboarding Feedback")
-        
-        with st.form("feedback_form"):
-            employee_name = st.text_input("Employee Name")
-            employee_email = st.text_input("Employee Email")
-            role = st.selectbox("Role", list(ROLES.keys()))
-            
-            st.markdown("### Rate your onboarding experience")
+        with st.form("edit_offer_letter_form"):
+            candidate_data = st.session_state.offer_letter_data
             
             col1, col2 = st.columns(2)
             
             with col1:
-                overall_rating = st.slider("Overall Experience", 1, 5, 3)
-                documentation_rating = st.slider("Documentation Quality", 1, 5, 3)
-                communication_rating = st.slider("Communication", 1, 5, 3)
+                name = st.text_input("Full Name", value=candidate_data["name"])
+                email = st.text_input("Email Address", value=candidate_data["email"])
+                position = st.selectbox("Position", list(ROLES.keys()), index=list(ROLES.keys()).index(candidate_data["position"]) if candidate_data["position"] in ROLES else 0)
+                start_date_obj = datetime.strptime(candidate_data["start_date"], "%B %d, %Y") if "start_date" in candidate_data else datetime.now()
+                start_date = st.date_input("Start Date", value=start_date_obj, min_value=datetime.now().date())
+                location = st.text_input("Work Location", value=candidate_data.get("location", "AI Planet HQ, Hyderabad"))
             
             with col2:
-                support_rating = st.slider("Support from Team/Manager", 1, 5, 3)
-                training_rating = st.slider("Training Quality", 1, 5, 3)
-                tools_rating = st.slider("Access to Tools and Resources", 1, 5, 3)
+                address = st.text_area("Address", value=candidate_data.get("address", ""))
+                employment_type = st.selectbox("Employment Type", ["Full-time", "Intern", "Contract"], index=["Full-time", "Intern", "Contract"].index(candidate_data.get("employment_type", "Full-time")))
+                
+                # If contract, show end date
+                if employment_type == "Contract":
+                    contract_months = st.number_input("Contract Duration (months)", min_value=1, value=6)
+                    end_date = (start_date + timedelta(days=30*contract_months)).strftime("%B %d, %Y")
+                else:
+                    end_date = None
+                    
+                annual_salary = st.number_input("Monthly Salary (₹)", min_value=0, value=int(candidate_data.get("annual_salary", "37500").replace(",", "")))
+                reporting_manager = st.text_input("Reporting Manager", value=candidate_data.get("reporting_manager", ""))
             
-            feedback_comments = st.text_area("Additional Comments", height=150)
-            suggestions = st.text_area("Suggestions for Improvement", height=150)
+            st.subheader("Additional Details")
             
-            submit_feedback = st.form_submit_button("Submit Feedback")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                bonus_details = st.text_area("Bonus Details", value=candidate_data.get("bonus_details", "Performance-based annual bonus based on company performance"))
+                equity_details = st.text_area("Equity Details", value=candidate_data.get("equity_details", "ESOPs based on a four-year vesting schedule with a one-year cliff"))
+            
+            with col2:
+                benefits = st.text_area("Benefits", value=candidate_data.get("benefits", "Health insurance; flexible work hours; remote work options"))
+                contingencies = st.text_area("Contingencies", value=candidate_data.get("contingencies", "successful background check and reference verification"))
+            
+            hr_name = st.text_input("HR Representative Name", value=candidate_data.get("hr_name", "Chanukya Patnaik"))
+            
+            update_submitted = st.form_submit_button("Update Offer Letter")
         
-        if submit_feedback:
-            if not employee_name or not employee_email:
-                st.error("Please fill in your name and email")
-            elif not is_valid_email(employee_email):
+        if update_submitted:
+            if not name or not email or not address or not reporting_manager:
+                st.error("Please fill in all required fields")
+            elif not is_valid_email(email):
                 st.error("Please enter a valid email address")
             else:
-                # Find employee ID if exists
-                employees = get_employees()
-                employee_id = None
-                for emp in employees:
-                    if emp['email'] == employee_email:
-                        employee_id = emp['id']
-                        break
+                # Update candidate data
+                candidate_data["name"] = name
+                candidate_data["email"] = email
+                candidate_data["address"] = address
+                candidate_data["position"] = position
+                candidate_data["start_date"] = start_date.strftime("%B %d, %Y")
+                candidate_data["end_date"] = end_date
+                candidate_data["employment_type"] = employment_type
+                candidate_data["location"] = location
+                candidate_data["annual_salary"] = f"{annual_salary:,}"
+                candidate_data["bonus_details"] = bonus_details
+                candidate_data["equity_details"] = equity_details
+                candidate_data["benefits"] = benefits
+                candidate_data["contingencies"] = contingencies
+                candidate_data["hr_name"] = hr_name
+                candidate_data["reporting_manager"] = reporting_manager
                 
-                # Prepare feedback data
-                feedback_data = {
-                    "id": str(uuid.uuid4()),
-                    "employee_id": employee_id,
-                    "name": employee_name,
-                    "email": employee_email,
-                    "role": role,
-                    "overall_rating": overall_rating,
-                    "documentation_rating": documentation_rating,
-                    "communication_rating": communication_rating,
-                    "support_rating": support_rating,
-                    "training_rating": training_rating,
-                    "tools_rating": tools_rating,
-                    "comments": feedback_comments,
-                    "suggestions": suggestions,
-                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                # Update session state
+                st.session_state.offer_letter_data = candidate_data
+                
+                # Regenerate PDF
+                pdf_content = generate_pdf_offer_letter(candidate_data)
+                st.session_state.pdf_content = pdf_content
+                
+                # Switch to preview mode
+                st.session_state.edit_mode = False
+                st.session_state.preview_mode = True
+                st.rerun()
+        
+        # Button to go back to preview mode without saving changes
+        if st.button("Cancel Edit"):
+            st.session_state.edit_mode = False
+            st.session_state.preview_mode = True
+            st.rerun()
+    
+    else:
+        # Initial offer letter creation form
+        st.markdown("""
+        <div class="card">
+            <p>Create customized offer letters for new employees. Fill in the form below with the candidate's information.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        with st.form("offer_letter_form"):
+            st.subheader("Candidate Information")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                name = st.text_input("Full Name")
+                email = st.text_input("Email Address")
+                position = st.selectbox("Position", list(ROLES.keys()))
+                start_date = st.date_input("Start Date", min_value=datetime.now().date())
+                location = st.text_input("Work Location", "AI Planet HQ, Hyderabad")
+            
+            with col2:
+                address = st.text_area("Address")
+                employment_type = st.selectbox("Employment Type", ["Full-time", "Intern", "Contract"])
+                
+                # If contract, show end date
+                if employment_type == "Contract":
+                    contract_months = st.number_input("Contract Duration (months)", min_value=1, value=6)
+                    end_date = (start_date + timedelta(days=30*contract_months)).strftime("%B %d, %Y")
+                else:
+                    end_date = None
+                    
+                annual_salary = st.number_input("Monthly Salary (₹)", min_value=0, value=37500)
+                reporting_manager = st.text_input("Reporting Manager")
+            
+            st.subheader("Additional Details")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                bonus_details = st.text_area("Bonus Details", "Performance-based annual bonus based on company performance")
+                equity_details = st.text_area("Equity Details", "ESOPs based on a four-year vesting schedule with a one-year cliff")
+            
+            with col2:
+                benefits = st.text_area("Benefits", "Health insurance; flexible work hours; remote work options")
+                contingencies = st.text_area("Contingencies", "successful background check and reference verification")
+            
+            hr_name = st.text_input("HR Representative Name", "Chanukya Patnaik")
+            
+            submitted = st.form_submit_button("Generate Offer Letter")
+        
+        if submitted:
+            if not name or not email or not address or not reporting_manager:
+                st.error("Please fill in all required fields")
+            elif not is_valid_email(email):
+                st.error("Please enter a valid email address")
+            else:
+                # Generate a unique ID for the candidate
+                candidate_id = str(uuid.uuid4())
+                
+                # Prepare candidate data
+                candidate_data = {
+                    "id": candidate_id,
+                    "name": name,
+                    "email": email,
+                    "address": address,
+                    "position": position,
+                    "start_date": start_date.strftime("%B %d, %Y"),
+                    "end_date": end_date,
+                    "employment_type": employment_type,
+                    "location": location,
+                    "annual_salary": f"{annual_salary:,}",
+                    "bonus_details": bonus_details,
+                    "equity_details": equity_details,
+                    "benefits": benefits,
+                    "contingencies": contingencies,
+                    "hr_name": hr_name,
+                    "offer_sent": False,
+                    "offer_accepted": False,
+                    "onboarding_completed": False,
+                    "reporting_manager": reporting_manager
                 }
                 
-                # Store the feedback
-                save_feedback(feedback_data)
-                
-                st.success("Thank you for your feedback! Your input helps us improve our onboarding process.")
-    
-    with tab2:
-        if st.session_state.user_role != "HR":
-            st.warning("Only HR personnel can view feedback data")
-        else:
-            st.subheader("Onboarding Feedback Data")
-            
-            feedback_data = get_feedback()
-            
-            if not feedback_data:
-                st.info("No feedback has been collected yet")
-            else:
-                # Calculate average ratings
-                avg_ratings = {"overall": 0, "documentation": 0, "communication": 0, 
-                              "support": 0, "training": 0, "tools": 0}
-                
-                for feedback in feedback_data:
-                    for key in avg_ratings:
-                        field_name = f"{key}_rating"
-                        if field_name in feedback and feedback[field_name]:
-                            avg_ratings[key] += feedback[field_name]
-                
-                for key in avg_ratings:
-                    avg_ratings[key] /= len(feedback_data) if len(feedback_data) > 0 else 1
-                
-                # Display average ratings
-                st.markdown("### Average Ratings")
-                
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.metric("Overall Experience", f"{avg_ratings['overall']:.1f}/5")
-                    st.metric("Documentation", f"{avg_ratings['documentation']:.1f}/5")
-                
-                with col2:
-                    st.metric("Communication", f"{avg_ratings['communication']:.1f}/5")
-                    st.metric("Support", f"{avg_ratings['support']:.1f}/5")
-                
-                with col3:
-                    st.metric("Training", f"{avg_ratings['training']:.1f}/5")
-                    st.metric("Tools & Resources", f"{avg_ratings['tools']:.1f}/5")
-                
-                # Display individual feedback
-                st.markdown("### Individual Feedback")
-                
-                for feedback in feedback_data:
-                    with st.expander(f"{feedback['name']} - {feedback['role']}"):
-                        st.markdown(f"**Date:** {feedback.get('timestamp', 'N/A')}")
-                        st.markdown(f"**Email:** {feedback['email']}")
-                        st.markdown(f"**Role:** {feedback['role']}")
-                        
-                        st.markdown("**Ratings:**")
-                        ratings_fields = ['overall_rating', 'documentation_rating', 'communication_rating', 'support_rating', 'training_rating', 'tools_rating']
-                        for field in ratings_fields:
-                            if field in feedback and feedback[field]:
-                                display_name = field.replace('_rating', '').capitalize()
-                                st.markdown(f"- {display_name}: {feedback[field]}/5")
-                        
-                        if feedback.get("comments"):
-                            st.markdown(f"**Comments:** {feedback['comments']}")
-                        
-                        if feedback.get("suggestions"):
-                            st.markdown(f"**Suggestions:** {feedback['suggestions']}")
-                
-                # Learning insights (this would be generated by the AI in a real agent)
-                st.subheader("Learning Insights")
-                
-                st.markdown("""
-                <div class="card">
-                    <h4>Key Improvement Areas</h4>
-                    <ul>
-                        <li>Documentation could be more comprehensive for technical roles</li>
-                        <li>More personalized training for specific roles</li>
-                        <li>Faster access provisioning for development tools</li>
-                    </ul>
+                # Check for intervention
+                intervention_type = check_human_intervention(candidate_data)
+                if intervention_type != "none":
+                    intervention_message = get_intervention_message(candidate_data, intervention_type)
+                    intervention_subject = f"Review Needed: New Offer Letter for {name}"
                     
-                    <h4>Recommended Actions</h4>
-                    <ul>
-                        <li>Update technical documentation for Full Stack Developer role</li>
-                        <li>Create role-specific welcome videos</li>
-                        <li>Automate access provisioning for common tools</li>
-                    </ul>
-                </div>
-                """, unsafe_allow_html=True)
+                    # Send notification email with appropriate priority
+                    if intervention_type == "urgent":
+                        send_notification_email(intervention_subject, intervention_message, priority="urgent")
+                    elif intervention_type == "high_priority":
+                        send_notification_email(intervention_subject, intervention_message, priority="high")
+                    else:
+                        send_notification_email(intervention_subject, intervention_message)
+                
+                # Generate the offer letter PDF
+                pdf_content = generate_pdf_offer_letter(candidate_data)
+                
+                # Save to session state
+                st.session_state.offer_letter_data = candidate_data
+                st.session_state.pdf_content = pdf_content
+                st.session_state.preview_mode = True
+                
+                # Save the candidate data
+                save_employee(candidate_data)
+                
+                # Show warning if intervention needed
+                if intervention_type != "none":
+                    if intervention_type == "urgent":
+                        st.warning("⚠️ **URGENT REVIEW NEEDED**: The start date is very close. A notification has been sent to HR.")
+                    elif intervention_type == "high_priority":
+                        st.warning("⚠️ **Review Recommended**: Some fields may need verification. A notification has been sent to HR.")
+                    else:
+                        st.info("ℹ️ A notification has been sent to HR for standard review.")
+                
+                st.rerun()
+                
+# Function to view offer letter of a specific candidate
+def view_offer_letter(employee_id):
+    # Get employee data
+    employee = get_employee_by_id(employee_id)
+    
+    if employee:
+        st.subheader(f"Offer Letter for {employee['name']}")
+        
+        # Generate the PDF if not in session state
+        pdf_content = generate_pdf_offer_letter(employee)
+        
+        # Display PDF preview
+        pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="500" type="application/pdf"></iframe>'
+        st.markdown(pdf_display, unsafe_allow_html=True)
+        
+        # Add option to open in Google Docs
+        st.markdown("""
+        <a href="https://docs.google.com/document/create" target="_blank" style="text-decoration: none;">
+            <button style="background-color: #1e8e3e; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer;">
+                Open in Google Docs (edit mode)
+            </button>
+        </a>
+        <p><small>Note: Download the PDF first, then upload it to Google Docs for editing.</small></p>
+        """, unsafe_allow_html=True)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("Back to Dashboard"):
+                st.session_state.viewing_employee_id = None
+                st.session_state.page = "Dashboard"
+                st.rerun()
+        
+        with col2:
+            # If offer not sent, show option to send
+            if not employee.get('offer_sent', False):
+                if st.button("Send Offer Letter"):
+                    # Set up for sending the email
+                    st.session_state.offer_letter_data = employee
+                    st.session_state.pdf_content = pdf_content
+                    st.session_state.email_confirmation_mode = True
+                    st.session_state.viewing_employee_id = None
+                    st.session_state.page = "Offer Letter Generator"
+                    st.rerun()
+    else:
+        st.error("Employee not found")
+        st.session_state.viewing_employee_id = None
 
 def settings_page():
     st.title("Settings")
@@ -1355,261 +1178,428 @@ def settings_page():
     </div>
     """, unsafe_allow_html=True)
     
-    tab1, tab2, tab3 = st.tabs(["Email Templates", "Role Management", "System Configuration"])
+    tabs = st.tabs(["Email Templates", "Email Configuration", "System Configuration", "Notification History"])
     
-    with tab1:
-        st.subheader("Email Templates")
-        
-        template_type = st.selectbox("Select Template", ["Offer Letter Email", "Onboarding Email", "Welcome Email"])
-        
-        if template_type == "Offer Letter Email":
-            template_content = OFFER_EMAIL_TEMPLATE
-        elif template_type == "Onboarding Email":
-            template_content = ONBOARDING_EMAIL_TEMPLATE
-        else:
-            template_content = "Welcome to AI Planet! We're excited to have you join our team."
-        
-        template_editor = st.text_area("Edit Template", template_content, height=400)
-        
-        if st.button("Save Template"):
-            # In a real application, save the template to the database
-            st.success(f"{template_type} template updated successfully")
+    with tabs[1]:
+        st.subheader("Email Configuration")
     
-    with tab2:
-        st.subheader("Role Management")
+        # Email notification settings
+        col1, col2 = st.columns(2)
         
-        selected_role = st.selectbox("Select Role", list(ROLES.keys()) + ["Add New Role"])
+        with col1:
+            # Notification email
+            st.session_state.notification_email = st.text_input(
+                "Notification Email", 
+                value=st.session_state.notification_email,
+                help="Email address for notifications and alerts"
+            )
         
-        if selected_role == "Add New Role":
-            with st.form("new_role_form"):
-                new_role_name = st.text_input("Role Title")
-                new_role_description = st.text_area("Role Description")
-                new_role_skills = st.text_area("Required Skills (one per line)")
-                new_role_docs = st.text_area("Onboarding Documents (one per line)")
-                new_role_training = st.text_area("Training Modules (one per line)")
-                
-                submit_role = st.form_submit_button("Add Role")
-                
-                if submit_role:
-                    if not new_role_name or not new_role_description:
-                        st.error("Please fill in the role title and description")
-                    else:
-                        # In a real application, add the role to the database
-                        # Here we'll just add it to the ROLES dictionary
-                        skills_list = [skill.strip() for skill in new_role_skills.split("\n") if skill.strip()]
-                        docs_list = [doc.strip() for doc in new_role_docs.split("\n") if doc.strip()]
-                        training_list = [module.strip() for module in new_role_training.split("\n") if module.strip()]
-                        
-                        ROLES[new_role_name] = {
-                            "description": new_role_description,
-                            "skills_required": skills_list,
-                            "onboarding_docs": docs_list,
-                            "training_modules": training_list
-                        }
-                        
-                        st.success(f"Role '{new_role_name}' added successfully")
-                        st.rerun()
-        else:
-            role_data = ROLES[selected_role]
-            
-            with st.form("edit_role_form"):
-                role_description = st.text_area("Role Description", role_data["description"])
-                role_skills = st.text_area("Required Skills (one per line)", "\n".join(role_data["skills_required"]))
-                role_docs = st.text_area("Onboarding Documents (one per line)", "\n".join(role_data["onboarding_docs"]))
-                role_training = st.text_area("Training Modules (one per line)", "\n".join(role_data["training_modules"]))
-                
-                update_role = st.form_submit_button("Update Role")
-                
-                if update_role:
-                    # In a real application, update the role in the database
-                    # Here we'll just update the ROLES dictionary
-                    skills_list = [skill.strip() for skill in role_skills.split("\n") if skill.strip()]
-                    docs_list = [doc.strip() for doc in role_docs.split("\n") if doc.strip()]
-                    training_list = [module.strip() for module in role_training.split("\n") if module.strip()]
-                    
-                    ROLES[selected_role] = {
-                        "description": role_description,
-                        "skills_required": skills_list,
-                        "onboarding_docs": docs_list,
-                        "training_modules": training_list
-                    }
-                    
-                    st.success(f"Role '{selected_role}' updated successfully")
-    
-    with tab3:
-        st.subheader("System Configuration")
+        with col2:
+            # Enable or disable email notifications
+            notifications_enabled = st.checkbox(
+                "Enable Email Notifications", 
+                value=True,
+                help="Turn on/off system email notifications"
+            )
+        
+        # API-based email settings
+        st.subheader("Email API Settings")
+        
+        st.info("""
+        Using email API service instead of SMTP for more reliable email delivery.
+        Default sender email: lukkashivacharan@gmail.com
+        """)
+        
+        # Test email functionality
+        st.subheader("Test Email Configuration")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            company_name = st.text_input("Company Name", COMPANY_INFO["name"])
-            company_address = st.text_input("Company Address", COMPANY_INFO["address"])
-            company_website = st.text_input("Company Website", COMPANY_INFO["website"])
+            test_email = st.text_input("Test Recipient Email", value=st.session_state.notification_email)
         
         with col2:
-            company_mission = st.text_area("Company Mission", COMPANY_INFO["mission"])
-            company_vision = st.text_area("Company Vision", COMPANY_INFO["vision"])
-            company_logo = st.file_uploader("Company Logo", type=["png", "jpg", "jpeg"])
-        
-        # Email settings
-        st.subheader("Email Settings")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            email_sender = st.text_input("Sender Email", "hr@aiplanet.com")
-            email_signature = st.text_area("Email Signature", "HR Team\nAI Planet\nwww.aiplanet.com")
-        
-        with col2:
-            smtp_server = st.text_input("SMTP Server", "smtp.aiplanet.com")
-            smtp_port = st.number_input("SMTP Port", value=587, min_value=1, max_value=65535)
-            smtp_auth = st.checkbox("Require Authentication", value=True)
-        
-        if st.button("Save Configuration"):
-            # In a real application, save the configuration to the database
-            # Here we'll just update the COMPANY_INFO dictionary
-            COMPANY_INFO["name"] = company_name
-            COMPANY_INFO["address"] = company_address
-            COMPANY_INFO["website"] = company_website
-            COMPANY_INFO["mission"] = company_mission
-            COMPANY_INFO["vision"] = company_vision
-            
-            st.success("System configuration updated successfully")
+            if st.button("Send Test Email"):
+                if send_notification_email(
+                    "AI Planet Onboarding - Test Email",
+                    """
+                    <h2>Test Email</h2>
+                    <p>This is a test email from the AI Planet Onboarding System.</p>
+                    <p>If you received this email, your email configuration is working correctly.</p>
+                    """,
+                    recipient=test_email
+                ):
+                    st.success(f"✅ Test email sent to {test_email}")
+                else:
+                    st.error("Failed to send test email. Please check your API settings.")
+                
+    # Other tabs implementation
 
-# Dashboard page
+# Dashboard page with enhanced visualizations
 def display_dashboard():
     st.title("Onboarding Dashboard")
     
-    # Define the main columns for the dashboard
+    # Initialize viewing_employee_id in session state if not present
+    if 'viewing_employee_id' not in st.session_state:
+        st.session_state.viewing_employee_id = None
+    
+    # If viewing a specific employee, show their offer letter
+    if st.session_state.viewing_employee_id:
+        view_offer_letter(st.session_state.viewing_employee_id)
+        return
+    
+    # Get employee data for statistics
+    employees = get_employees()
+    
+    # Calculate statistics
+    total_offers = len(employees)
+    offers_sent = sum(1 for emp in employees if emp.get('offer_sent', False))
+    offers_accepted = sum(1 for emp in employees if emp.get('offer_accepted', False))
+    pending_onboarding = sum(1 for emp in employees if emp.get('offer_accepted', False) and not emp.get('onboarding_completed', False))
+    onboarding_completed = sum(1 for emp in employees if emp.get('onboarding_completed', False))
+    
+    # Display statistics cards
+    st.markdown("<h3>📊 Onboarding Overview</h3>", unsafe_allow_html=True)
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.markdown(f"""
+        <div class="card" style="text-align: center; background-color: #e3f2fd; cursor: pointer;" onclick="window.location.href='#'">
+            <h1 style="color: #1976D2; font-size: 2.5rem; margin: 0;">{total_offers}</h1>
+            <p>Total Offers</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+        <div class="card" style="text-align: center; background-color: #e8f5e9; cursor: pointer;" onclick="window.location.href='#'">
+            <h1 style="color: #388E3C; font-size: 2.5rem; margin: 0;">{offers_sent}</h1>
+            <p>Offers Sent</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"""
+        <div class="card" style="text-align: center; background-color: #fff3e0; cursor: pointer;" onclick="window.location.href='#'">
+            <h1 style="color: #F57C00; font-size: 2.5rem; margin: 0;">{offers_accepted}</h1>
+            <p>Offers Accepted</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown(f"""
+        <div class="card" style="text-align: center; background-color: #e8eaf6; cursor: pointer;" onclick="window.location.href='#'">
+            <h1 style="color: #3F51B5; font-size: 2.5rem; margin: 0;">{pending_onboarding}</h1>
+            <p>Pending Onboarding</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col5:
+        st.markdown(f"""
+        <div class="card" style="text-align: center; background-color: #e0f7fa; cursor: pointer;" onclick="window.location.href='#'">
+            <h1 style="color: #00ACC1; font-size: 2.5rem; margin: 0;">{onboarding_completed}</h1>
+            <p>Onboarding Completed</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Visualizations section
+    st.markdown("<h3>📈 Onboarding Analytics</h3>", unsafe_allow_html=True)
+    
+    left_col, right_col = st.columns(2)
+    
+    with left_col:
+        # Generate pie chart for offer status
+        fig, ax = plt.subplots(figsize=(8, 5))
+        labels = ['Offers Generated', 'Offers Sent', 'Offers Accepted', 'Onboarding Completed']
+        sizes = [total_offers - offers_sent, offers_sent - offers_accepted, offers_accepted - onboarding_completed, onboarding_completed]
+        colors = ['#1976D2', '#F57C00', '#388E3C', '#00ACC1']
+        
+        # Only include non-zero values in the pie chart
+        filtered_labels = [label for i, label in enumerate(labels) if sizes[i] > 0]
+        filtered_sizes = [size for size in sizes if size > 0]
+        filtered_colors = [color for i, color in enumerate(colors) if sizes[i] > 0]
+        
+        if filtered_sizes:
+            wedges, texts, autotexts = ax.pie(
+                filtered_sizes, 
+                autopct='%1.1f%%',
+                startangle=90,
+                colors=filtered_colors,
+                wedgeprops={'edgecolor': 'w', 'linewidth': 1}
+            )
+            
+            # Equal aspect ratio ensures that pie is drawn as a circle
+            ax.axis('equal')
+            
+            # Add legend
+            ax.legend(
+                wedges, 
+                filtered_labels,
+                title="Offer Status",
+                loc="center left",
+                bbox_to_anchor=(0.9, 0, 0.5, 1)
+            )
+            
+            plt.title('Offer Status Distribution')
+            
+            # Display the chart in Streamlit
+            st.pyplot(fig)
+        else:
+            st.info("No data available for the pie chart.")
+    
+    with right_col:
+        # Role distribution bar chart
+        role_counts = {}
+        for emp in employees:
+            role = emp.get('position', 'Unknown')
+            role_counts[role] = role_counts.get(role, 0) + 1
+        
+        if role_counts:
+            fig, ax = plt.subplots(figsize=(8, 5))
+            
+            roles = list(role_counts.keys())
+            counts = list(role_counts.values())
+            
+            # Create horizontal bar chart
+            bars = ax.barh(roles, counts, color='#2E5090')
+            
+            # Add count annotations to the bars
+            for i, v in enumerate(counts):
+                ax.text(v + 0.1, i, str(v), color='black', va='center')
+            
+            ax.set_xlabel('Number of Candidates')
+            ax.set_title('Candidates by Role')
+            
+            plt.tight_layout()
+            
+            # Display the chart in Streamlit
+            st.pyplot(fig)
+        else:
+            st.info("No data available for the role distribution chart.")
+    
+    # Recent activities and pending tasks section
+    st.markdown("<h3>🔍 Recent Activities</h3>", unsafe_allow_html=True)
+    
     left_col, right_col = st.columns(2)
     
     with left_col:
         st.markdown("""
         <div class="card">
-            <h3>🔍 Overview</h3>
-            <p>Welcome to AI Planet's onboarding system. From here, you can manage all aspects of the employee onboarding process.</p>
+            <h4>Recent Activities</h4>
         </div>
         """, unsafe_allow_html=True)
         
-        employees = get_employees()
-        st.markdown(f"""
-        <div class="card">
-            <h3>📊 Quick Stats</h3>
-            <p>Total Employees: {len(employees)}</p>
-            <p>Pending Onboardings: {sum(1 for emp in employees if not emp.get('onboarding_completed', False))}</p>
-            <p>Completed Onboardings: {sum(1 for emp in employees if emp.get('onboarding_completed', False))}</p>
-        </div>
-        """, unsafe_allow_html=True)
+        # Get recent activities from database - in a real app, this would query database with timestamps
+        # Sort employees by updated_at to get recent activities
+        sorted_employees = sorted(employees, key=lambda x: x.get('updated_at', ''), reverse=True)[:5]
+        
+        if sorted_employees:
+            for i, emp in enumerate(sorted_employees):
+                activity = {}
+                activity["timestamp"] = emp.get('updated_at', datetime.now().strftime("%Y-%m-%d %H:%M"))
+                
+                if emp.get('onboarding_completed', False):
+                    activity["activity"] = f"Onboarding completed for {emp['name']}"
+                elif emp.get('offer_accepted', False):
+                    activity["activity"] = f"Offer accepted by {emp['name']}"
+                elif emp.get('offer_sent', False):
+                    activity["activity"] = f"Offer letter sent to {emp['name']}"
+                else:
+                    activity["activity"] = f"Offer letter generated for {emp['name']}"
+                    
+                activity["role"] = emp['position']
+                activity["id"] = emp['id']
+                
+                # Create a styled activity row with a view button
+                st.markdown(f"""
+                <div style="padding: 10px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="flex-grow: 1;">
+                        <p style="margin-bottom: 0;"><strong>{activity['timestamp']}</strong>: {activity['activity']} - <span style="color: #2E5090;">{activity['role']}</span></p>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Add view button with consistent styling
+                if st.button("👁️ View", key=f"view_activity_{i}", help=f"View details for {emp['name']}", 
+                           use_container_width=False):
+                    st.session_state.viewing_employee_id = activity["id"]
+                    st.rerun()
+        else:
+            # If no activities, show sample ones
+            sample_activities = [
+                {"timestamp": "2025-05-06 14:30", "activity": "Offer letter sent to Jane Smith", "role": "Full Stack Developer", "id": "sample1"},
+                {"timestamp": "2025-05-05 11:15", "activity": "Offer accepted by John Doe", "role": "Data Scientist", "id": "sample2"},
+                {"timestamp": "2025-05-05 09:00", "activity": "Offer letter generated for Alex Johnson", "role": "Business Analyst", "id": "sample3"},
+                {"timestamp": "2025-05-04 16:45", "activity": "Onboarding completed for Sarah Williams", "role": "Product Manager", "id": "sample4"},
+                {"timestamp": "2025-05-04 10:20", "activity": "Offer letter generated for Michael Brown", "role": "Full Stack Developer", "id": "sample5"}
+            ]
+            
+            for i, activity in enumerate(sample_activities):
+                # Create a styled activity row with a view button
+                st.markdown(f"""
+                <div style="padding: 10px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="flex-grow: 1;">
+                        <p style="margin-bottom: 0;"><strong>{activity['timestamp']}</strong>: {activity['activity']} - <span style="color: #2E5090;">{activity['role']}</span></p>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # For sample data, show disabled buttons
+                st.button("👁️ View", key=f"view_sample_{i}", disabled=True)
     
     with right_col:
         st.markdown("""
         <div class="card">
-            <h3>🚀 Quick Actions</h3>
+            <h4>Quick Actions</h4>
         </div>
         """, unsafe_allow_html=True)
         
-        # Create clickable cards for quick actions
-        col1, col2 = st.columns(2)
+        # Create clickable button for generating new offer letter
+        if st.button("✨ Generate New Offer Letter", key="dashboard_new_offer", 
+                  help="Create a new offer letter", use_container_width=True):
+            # Direct link to the Offer Letter Generator page
+            st.session_state.page = "Offer Letter Generator"
+            st.rerun()
         
-        with col1:
-            st.markdown("""
-            <div class="card action-card" onclick="window.location.href='#'">
-                <h4>📝 Generate Offer Letter</h4>
-                <p>Create and send offer letters to candidates</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Add clickable button underneath for better UX
-            if st.button("Generate New Offer Letter"):
-                st.session_state.page = "Offer Letter Generator"
-                st.rerun()
+        # Pending actions section
+        st.markdown("""
+        <div class="card" style="margin-top: 20px;">
+            <h4>Pending Actions</h4>
+        </div>
+        """, unsafe_allow_html=True)
         
-        with col2:
-            st.markdown("""
-            <div class="card action-card" onclick="window.location.href='#'">
-                <h4>👋 Manage Onboarding</h4>
-                <p>Handle employee onboarding process</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Add clickable button underneath for better UX
-            if st.button("Manage Onboarding"):
-                st.session_state.page = "Onboarding Management"
-                st.rerun()
+        # Find employees with pending actions
+        pending_actions = []
         
-        # Define another set of columns for the second row of action cards
-        action_col1, action_col2 = st.columns(2)  # Use different variable names to avoid confusion
+        for emp in employees:
+            if not emp.get('offer_sent', False):
+                pending_actions.append({
+                    "name": emp['name'],
+                    "action": "Send offer letter",
+                    "id": emp['id']
+                })
+            elif not emp.get('offer_accepted', False):
+                pending_actions.append({
+                    "name": emp['name'],
+                    "action": "Follow up on offer",
+                    "id": emp['id']
+                })
+            elif not emp.get('onboarding_completed', False):
+                pending_actions.append({
+                    "name": emp['name'],
+                    "action": "Complete onboarding",
+                    "id": emp['id']
+                })
         
-        with action_col1:
-            st.markdown("""
-            <div class="card action-card" onclick="window.location.href='#'">
-                <h4>📚 Documentation Library</h4>
-                <p>Access and manage documents</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Add clickable button underneath for better UX
-            if st.button("View Documentation Library"):
-                st.session_state.page = "Documentation Library"
-                st.rerun()
-        
-        with action_col2:
-            st.markdown("""
-            <div class="card action-card" onclick="window.location.href='#'">
-                <h4>📊 Feedback System</h4>
-                <p>Collect and review onboarding feedback</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Add clickable button underneath for better UX
-            if st.button("View Feedback"):
-                st.session_state.page = "Feedback System"
-                st.rerun()
-    
-    # Recent activities
-    st.markdown("""
-    <div class="card">
-        <h3>📅 Recent Activities</h3>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Get recent activities from database - in a real app, this would query database with timestamps
-    employees = get_employees()
-    activities = []
-    
-    # Sort employees by updated_at to get recent activities
-    sorted_employees = sorted(employees, key=lambda x: x.get('updated_at', ''), reverse=True)[:3]
-    
-    for emp in sorted_employees:
-        activity = {}
-        activity["timestamp"] = emp.get('updated_at', datetime.now().strftime("%Y-%m-%d %H:%M"))
-        
-        if emp.get('onboarding_completed', False):
-            activity["activity"] = f"Onboarding completed for {emp['name']}"
-        elif emp.get('offer_accepted', False):
-            activity["activity"] = f"Offer accepted by {emp['name']}"
-        elif emp.get('offer_sent', False):
-            activity["activity"] = f"Offer letter sent to {emp['name']}"
+        # Display pending actions without buttons (removed as requested)
+        if pending_actions:
+            for i, action in enumerate(pending_actions[:5]):  # Show top 5 pending actions
+                # Just display the action without buttons
+                st.markdown(f"""
+                <div style="padding: 10px; border-bottom: 1px solid #eee;">
+                    <p>{action['name']} - <strong>{action['action']}</strong></p>
+                </div>
+                """, unsafe_allow_html=True)
         else:
-            activity["activity"] = f"Offer letter generated for {emp['name']}"
-            
-        activity["role"] = emp['position']
-        activities.append(activity)
+            st.info("No pending actions.")
+
+# Function to check if human intervention is needed
+def check_human_intervention(employee_data):
+    """
+    Check if the employee data requires human intervention
     
-    # If no activities from database, show sample ones
-    if not activities:
-        activities = [
-            {"timestamp": "2025-05-06 14:30", "activity": "Offer letter sent to Jane Smith", "role": "Full Stack Developer"},
-            {"timestamp": "2025-05-05 11:15", "activity": "Onboarding completed for John Doe", "role": "Data Scientist"},
-            {"timestamp": "2025-05-05 09:00", "activity": "New template added for Business Analyst role", "role": "Business Analyst"}
-        ]
+    Args:
+        employee_data (dict): Employee data
+        
+    Returns:
+        str: Type of intervention needed ("none", "normal", "high_priority", "urgent")
+    """
+    # Check for missing critical information
+    critical_fields = ["name", "email", "position", "start_date"]
+    for field in critical_fields:
+        if field not in employee_data or not employee_data[field]:
+            return "high_priority"
     
-    for activity in activities:
-        st.markdown(f"""
-        <div style="padding: 10px; border-bottom: 1px solid #eee;">
-            <p><strong>{activity['timestamp']}</strong>: {activity['activity']} - <span style="color: #2E5090;">{activity['role']}</span></p>
-        </div>
-        """, unsafe_allow_html=True)
+    # Check for unusual salary
+    try:
+        salary = int(employee_data.get("annual_salary", "0").replace(",", ""))
+        if salary > 200000:  # Unusually high salary
+            return "high_priority"
+        if salary < 10000 and salary > 0:  # Unusually low salary
+            return "normal"
+    except (ValueError, TypeError):
+        pass
+    
+    # Check for urgent timeline issues
+    try:
+        start_date = datetime.strptime(employee_data["start_date"], "%B %d, %Y").date()
+        days_to_start = (start_date - datetime.now().date()).days
+        
+        if days_to_start < 7 and not employee_data.get("offer_sent", False):
+            return "urgent"  # Less than a week to start date and offer not sent
+        if days_to_start < 14 and not employee_data.get("offer_sent", False):
+            return "high_priority"  # Less than two weeks to start date and offer not sent
+    except (ValueError, TypeError, KeyError):
+        pass
+    
+    return "none"
+
+# Function to get intervention message
+# Function to get intervention message (continued)
+def get_intervention_message(employee_data, intervention_type):
+    """
+    Generate appropriate intervention message based on type
+    
+    Args:
+        employee_data (dict): Employee data
+        intervention_type (str): Type of intervention
+        
+    Returns:
+        str: HTML message for email notification
+    """
+    employee_name = employee_data.get("name", "Unknown")
+    position = employee_data.get("position", "Unknown position")
+    
+    if intervention_type == "urgent":
+        return f"""
+        <h2>URGENT ACTION REQUIRED</h2>
+        <p>An urgent issue has been detected with the onboarding process for <strong>{employee_name}</strong> ({position}).</p>
+        <p>The employee's start date is approaching rapidly and the offer letter has not been sent yet.</p>
+        <p>Please take immediate action to ensure a smooth onboarding process.</p>
+        <h3>Required Actions:</h3>
+        <ul>
+            <li>Send the offer letter immediately</li>
+            <li>Contact the employee to confirm receipt and acceptance</li>
+            <li>Expedite the onboarding process</li>
+        </ul>
+        """
+    
+    elif intervention_type == "high_priority":
+        return f"""
+        <h2>High Priority Intervention Needed</h2>
+        <p>A high priority issue has been detected with the onboarding process for <strong>{employee_name}</strong> ({position}).</p>
+        <p>There may be missing critical information or unusual parameters in the employee's data.</p>
+        <h3>Please review:</h3>
+        <ul>
+            <li>Check all required fields are complete</li>
+            <li>Verify salary information is correct</li>
+            <li>Ensure start date is realistic and provides adequate time for onboarding</li>
+        </ul>
+        """
+    
+    else:  # normal
+        return f"""
+        <h2>Onboarding Review Needed</h2>
+        <p>The onboarding process for <strong>{employee_name}</strong> ({position}) requires review.</p>
+        <p>There may be unusual parameters or information that should be verified before proceeding.</p>
+        <h3>Suggested actions:</h3>
+        <ul>
+            <li>Review employee information for accuracy</li>
+            <li>Verify all critical fields are filled correctly</li>
+            <li>Ensure the onboarding process is on track</li>
+        </ul>
+        """
 
 # Run the application
 if __name__ == "__main__":

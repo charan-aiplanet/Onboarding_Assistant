@@ -1122,25 +1122,30 @@ def view_offer_letter(employee_id):
     # Get employee data
     employee = get_employee_by_id(employee_id)
     
+    # Update the PDF display part in view_offer_letter() function
     if employee:
         st.subheader(f"Offer Letter for {employee['name']}")
+    
+    # Generate the PDF
+    pdf_content = generate_pdf_offer_letter(employee)
+    
+    # Check if PDF was properly generated
+    if pdf_content:
+        # Create a download button for PDF
+        st.download_button(
+            label="Download PDF",
+            data=base64.b64decode(pdf_content),
+            file_name=f"AI_Planet_{employee['name']}_Offer_Letter.pdf",
+            mime="application/pdf"
+        )
         
-        # Generate the PDF if not in session state
-        pdf_content = generate_pdf_offer_letter(employee)
-        
-        # Display PDF preview
-        pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="500" type="application/pdf"></iframe>'
-        st.markdown(pdf_display, unsafe_allow_html=True)
-        
-        # Add option to open in Google Docs
-        st.markdown("""
-        <a href="https://docs.google.com/document/create" target="_blank" style="text-decoration: none;">
-            <button style="background-color: #1e8e3e; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer;">
-                Open in Google Docs (edit mode)
-            </button>
-        </a>
-        <p><small>Note: Download the PDF first, then upload it to Google Docs for editing.</small></p>
-        """, unsafe_allow_html=True)
+        # Display PDF preview with better error handling
+        try:
+            pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="500" type="application/pdf"></iframe>'
+            st.markdown(pdf_display, unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"Error displaying PDF: {str(e)}")
+            st.info("Please use the download button to view the PDF externally.")
         
         col1, col2 = st.columns(2)
         

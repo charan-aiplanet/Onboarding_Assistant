@@ -99,7 +99,7 @@ COMPANY_INFO = {
     "name": "AI Planet",
     "address": "CIE IIIT Hyderabad, Vindhya C4, IIIT-H Campus, Gachibowli, Telangana 500032",
     "website": "www.aiplanet.com",
-    "logo_path": "logo.png",
+    "logo_path": "data\logo.png",
     "mission": "Revolutionizing industries through cutting-edge AI solutions",
     "vision": "To be the global leader in enterprise AI implementation and innovation",
     "legal_name": "DPhi Tech Private Limited"
@@ -308,7 +308,7 @@ def generate_pdf_offer_letter(candidate_data):
     pdf.set_font('Arial', 'B', 12)
     pdf.cell(0, 10, 'Offer Letter with AI Planet', 0, 1, 'C')
     # Add logo at the top right corner on first page - using provided logo
-    pdf.image('logo.png', x=160, y=10, w=30) if os.path.exists('logo.png') else None
+    pdf.image('data\logo.png', x=160, y=10, w=30) if os.path.exists('data\logo.png') else None
     
     # Add date
     pdf.set_font('Arial', '', 12)
@@ -344,7 +344,7 @@ def generate_pdf_offer_letter(candidate_data):
     pdf.ln(10)
     pdf.cell(0, 10, 'Congratulations!', 0, 1, 'L')
     
-    pdf.image('chanukya-sign.png') if os.path.exists('chanukya-sign.png') else None
+    pdf.image('data\chanukya-sign.png') if os.path.exists('data\chanukya-sign.png') else None
     pdf.cell(0, 10, 'Chanukya Patnaik', 0, 1, 'L')
     pdf.cell(0, 6, 'Founder, AI Planet (DPhi)', 0, 1, 'L')
     
@@ -358,10 +358,10 @@ def generate_pdf_offer_letter(candidate_data):
 
     #pdf.set_font('Arial', 'Offer letter with AI Planet', 12)
     # Add logo at the top right corner on second page
-    pdf.image('logo.png', x=160, y=10, w=30) if os.path.exists('logo.png') else None
+    pdf.image('data\logo.png', x=160, y=10, w=30) if os.path.exists('data\logo.png') else None
     
     pdf.set_font('Arial', 'B', 14)
-    pdf.set_text_color(0, 0, 150)  # Blue colordata\logo.png
+    pdf.set_text_color(0, 0, 150)  # Blue colordata\data\logo.png
     pdf.cell(0, 15, 'Annexure A', 0, 1, 'L')
     
     pdf.set_font('Arial', '', 12)
@@ -407,7 +407,7 @@ def generate_pdf_offer_letter(candidate_data):
     
     
     # Add logo at the top right corner on third page
-    pdf.image('logo.png', x=160, y=10, w=30) if os.path.exists('logo.png') else None
+    pdf.image('data\logo.png', x=160, y=10, w=30) if os.path.exists('data\logo.png') else None
     pdf.ln(15)
     # Continue with remaining points
     for i, point in enumerate(points[8:], 8):
@@ -623,16 +623,18 @@ def preview_email(to_email, subject, content, pdf_content=None):
         st.markdown(f"**Attachment:** {pdf_filename}")
         
         with st.expander("Preview PDF Attachment"):
-            # Display PDF preview
-            pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="400" ></iframe>'
-            st.markdown(pdf_display, unsafe_allow_html=True)
+            show_pdf(pdf_content)
+
     
     # Set up email configuration section
     with st.expander("Email Configuration (Optional)"):
         st.info("Using API-based email service with sender: lukkashivacharan@gmail.com")
     
     return True
-
+def show_pdf(pdf_base64):
+    b64_pdf = pdf_base64
+    pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="700" height="1000" type="application/pdf"></iframe>'
+    st.markdown(pdf_display, unsafe_allow_html=True)
 # Custom CSS
 def load_css():
     st.markdown("""
@@ -904,11 +906,21 @@ def offer_letter_generator():
         
         if st.session_state.pdf_content:
             # Display PDF preview
-            pdf_display = f'<iframe src="data:application/pdf;base64,{st.session_state.pdf_content}" width="100%" height="500"></iframe>'
-            st.markdown(pdf_display, unsafe_allow_html=True)
+            with st.expander("Preview PDF Attachment"):
+                show_pdf(pdf_content)
+
+            #pdf_display = f'<iframe src="data:application/pdf;base64,{st.session_state.pdf_content}" width="100%" height="500"></iframe>'
+            #st.markdown(pdf_display, unsafe_allow_html=True)
             
             # Add option to open in Google Docs
-            
+            st.markdown("""
+            <a href="https://docs.google.com/document/create" target="_blank" style="text-decoration: none;">
+                <button style="background-color: #1e8e3e; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer;">
+                    Open in Google Docs (edit mode)
+                </button>
+            </a>
+            <p><small>Note: Download the PDF first, then upload it to Google Docs for editing.</small></p>
+            """, unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns(3)
         
@@ -1151,18 +1163,14 @@ def view_offer_letter(employee_id):
         pdf_content = generate_pdf_offer_letter(employee)
         
         # Display PDF preview
-        pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="500"></iframe>'
-        st.markdown(pdf_display, unsafe_allow_html=True)
+        with st.expander("Preview PDF Attachment"):
+            show_pdf(pdf_content)
+
+        #pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="500"></iframe>'
+        #st.markdown(pdf_display, unsafe_allow_html=True)
         
         # Add option to open in Google Docs
-        st.markdown("""
-        <a href="https://docs.google.com/document/create" target="_blank" style="text-decoration: none;">
-            <button style="background-color: #1e8e3e; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer;">
-                Open in Google Docs (edit mode)
-            </button>
-        </a>
-        <p><small>Note: Download the PDF first, then upload it to Google Docs for editing.</small></p>
-        """, unsafe_allow_html=True)
+        
         
         col1, col2 = st.columns(2)
         
@@ -1171,18 +1179,7 @@ def view_offer_letter(employee_id):
                 st.session_state.viewing_employee_id = None
                 st.session_state.page = "Dashboard"
                 st.rerun()
-        
-        with col2:
-            # If offer not sent, show option to send
-            if not employee.get('offer_sent', False):
-                if st.button("Send Offer Letter"):
-                    # Set up for sending the email
-                    st.session_state.offer_letter_data = employee
-                    st.session_state.pdf_content = pdf_content
-                    st.session_state.email_confirmation_mode = True
-                    st.session_state.viewing_employee_id = None
-                    st.session_state.page = "Offer Letter Generator"
-                    st.rerun()
+    
     else:
         st.error("Employee not found")
         st.session_state.viewing_employee_id = None
@@ -1762,6 +1759,3 @@ def get_intervention_message(employee_data, intervention_type):
 # Run the application
 if __name__ == "__main__":
     main()
-
-
-# Function to check if email is valid

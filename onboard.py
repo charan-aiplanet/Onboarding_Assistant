@@ -99,7 +99,7 @@ COMPANY_INFO = {
     "name": "AI Planet",
     "address": "CIE IIIT Hyderabad, Vindhya C4, IIIT-H Campus, Gachibowli, Telangana 500032",
     "website": "www.aiplanet.com",
-    "logo_path": "logo.png",
+    "logo_path": "data\logo.png",
     "mission": "Revolutionizing industries through cutting-edge AI solutions",
     "vision": "To be the global leader in enterprise AI implementation and innovation",
     "legal_name": "DPhi Tech Private Limited"
@@ -308,7 +308,7 @@ def generate_pdf_offer_letter(candidate_data):
     pdf.set_font('Arial', 'B', 12)
     pdf.cell(0, 10, 'Offer Letter with AI Planet', 0, 1, 'C')
     # Add logo at the top right corner on first page - using provided logo
-    pdf.image('logo.png', x=160, y=10, w=30) if os.path.exists('logo.png') else None
+    pdf.image('data\logo.png', x=160, y=10, w=30) if os.path.exists('data\logo.png') else None
     
     # Add date
     pdf.set_font('Arial', '', 12)
@@ -344,7 +344,7 @@ def generate_pdf_offer_letter(candidate_data):
     pdf.ln(10)
     pdf.cell(0, 10, 'Congratulations!', 0, 1, 'L')
     
-    pdf.image('chanukya-sign.png') if os.path.exists('chanukya-sign.png') else None
+    pdf.image('data\chanukya-sign.png') if os.path.exists('data\chanukya-sign.png') else None
     pdf.cell(0, 10, 'Chanukya Patnaik', 0, 1, 'L')
     pdf.cell(0, 6, 'Founder, AI Planet (DPhi)', 0, 1, 'L')
     
@@ -358,10 +358,10 @@ def generate_pdf_offer_letter(candidate_data):
 
     #pdf.set_font('Arial', 'Offer letter with AI Planet', 12)
     # Add logo at the top right corner on second page
-    pdf.image('logo.png', x=160, y=10, w=30) if os.path.exists('logo.png') else None
+    pdf.image('data\logo.png', x=160, y=10, w=30) if os.path.exists('data\logo.png') else None
     
     pdf.set_font('Arial', 'B', 14)
-    pdf.set_text_color(0, 0, 150)  # Blue colordata\logo.png
+    pdf.set_text_color(0, 0, 150)  # Blue colordata\data\logo.png
     pdf.cell(0, 15, 'Annexure A', 0, 1, 'L')
     
     pdf.set_font('Arial', '', 12)
@@ -407,7 +407,7 @@ def generate_pdf_offer_letter(candidate_data):
     
     
     # Add logo at the top right corner on third page
-    pdf.image('logo.png', x=160, y=10, w=30) if os.path.exists('logo.png') else None
+    pdf.image('data\logo.png', x=160, y=10, w=30) if os.path.exists('data\logo.png') else None
     pdf.ln(15)
     # Continue with remaining points
     for i, point in enumerate(points[8:], 8):
@@ -630,7 +630,7 @@ def preview_email(to_email, subject, content, pdf_content=None):
             st.download_button(
                 label="📄 Download Offer Letter (PDF)",
                 data=pdf_bytes,
-                file_name="I Planet_{candidate_name}_Offer_Letter.pdf",
+                file_name="AI Planet_{candidate_name}_Offer_Letter.pdf",
                 mime="application/pdf"
             )
         #with st.expander("Preview PDF Attachment"):
@@ -1161,7 +1161,17 @@ def view_offer_letter(employee_id):
     
     if employee:
         st.subheader(f"Offer Letter for {employee['name']}")
-        
+        if st.session_state.preview_mode:
+            st.subheader("Review Offer Letter")
+
+        if st.session_state.pdf_content:
+            pdf_bytes = base64.b64decode(st.session_state.pdf_content)
+            st.download_button(
+                label="📄 Download Offer Letter (PDF)",
+                data=pdf_bytes,
+                file_name="Offer_Letter.pdf",
+                mime="application/pdf"
+            )
         # Generate the PDF if not in session state
         pdf_content = generate_pdf_offer_letter(employee)
         
@@ -1646,6 +1656,9 @@ def display_dashboard():
                     if view_btn:
                         st.session_state.viewing_employee_id = row['id']
                         st.rerun()
+
+
+        
         else:
             st.info("No results match your search criteria.")
     else:
@@ -1669,6 +1682,13 @@ def display_dashboard():
         <p>Click the <strong>View</strong> button to see the candidate's full offer letter and details.</p>
     </div>
     """, unsafe_allow_html=True)
+    st.markdown("<h3>📊 Onboarding Overview</h3>", unsafe_allow_html=True)
+    
+    # [Rest of the existing dashboard code here...]
+    
+    # Add the new offer letters section - place it where appropriate in your dashboard
+    st.markdown("<hr>", unsafe_allow_html=True)
+    display_offer_letters_section()
 
 # Function to check if human intervention is needed
 def check_human_intervention(employee_data):
@@ -1766,7 +1786,107 @@ def get_intervention_message(employee_data, intervention_type):
             <li>Ensure the onboarding process is on track</li>
         </ul>
         """
-
+def display_offer_letters_section():
+    """Display all generated offer letters on the dashboard."""
+    st.markdown("<h3>📄 Generated Offer Letters</h3>", unsafe_allow_html=True)
+    
+    # Check if DOCUMENTS_DIR exists and has files
+    if not os.path.exists(DOCUMENTS_DIR):
+        st.warning("Documents directory not found. No offer letters available.")
+        return
+    
+    # Get all PDF files from the documents directory that match offer letter pattern
+    offer_letter_files = []
+    for file in os.listdir(DOCUMENTS_DIR):
+        if file.endswith(".pdf") and "offer_letter" in file.lower():
+            file_path = os.path.join(DOCUMENTS_DIR, file)
+            creation_time = os.path.getctime(file_path)
+            creation_date = datetime.fromtimestamp(creation_time).strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Extract employee name from filename
+            try:
+                employee_name = file.split('_')[0].replace('_', ' ')
+            except:
+                employee_name = "Unknown"
+            
+            offer_letter_files.append({
+                "filename": file,
+                "file_path": file_path,
+                "creation_date": creation_date,
+                "employee_name": employee_name
+            })
+    
+    # Sort files by creation date (newest first)
+    offer_letter_files.sort(key=lambda x: x["creation_date"], reverse=True)
+    
+    if not offer_letter_files:
+        st.info("No offer letters have been generated yet.")
+        return
+    
+    # Add search functionality for offer letters
+    search_term = st.text_input("🔍 Search offer letters by name", key="offer_letter_search")
+    
+    # Filter by search term if provided
+    if search_term:
+        filtered_files = [file for file in offer_letter_files if search_term.lower() in file["employee_name"].lower()]
+    else:
+        filtered_files = offer_letter_files
+    
+    # Display the offer letters in a table
+    if filtered_files:
+        for i, file in enumerate(filtered_files):
+            with st.container():
+                cols = st.columns([3, 2, 1, 1])
+                
+                with cols[0]:
+                    st.write(f"**{file['employee_name']}**")
+                    st.caption(file['filename'])
+                
+                with cols[1]:
+                    st.write(file['creation_date'])
+                
+                with cols[2]:
+                    # Read PDF for download
+                    with open(file['file_path'], "rb") as pdf_file:
+                        pdf_bytes = pdf_file.read()
+                    
+                    st.download_button(
+                        label="📥",
+                        data=pdf_bytes,
+                        file_name=file['filename'],
+                        mime="application/pdf",
+                        key=f"download_{i}"
+                    )
+                
+                with cols[3]:
+                    # View button
+                    if st.button("👁️", key=f"view_{i}"):
+                        # Store current viewing PDF info in session state
+                        with open(file['file_path'], "rb") as pdf_file:
+                            pdf_bytes = pdf_file.read()
+                            pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+                        
+                        st.session_state.current_pdf = {
+                            'name': file['filename'],
+                            'content': pdf_base64
+                        }
+                        st.rerun()
+                
+                st.markdown("---")
+    else:
+        st.info("No matching offer letters found.")
+    
+    # Display the selected PDF if in viewing mode
+    if 'current_pdf' in st.session_state and st.session_state.current_pdf:
+        st.subheader(f"Viewing: {st.session_state.current_pdf['name']}")
+        
+        # Display PDF using iframe
+        pdf_display = f'<iframe src="data:application/pdf;base64,{st.session_state.current_pdf["content"]}" width="100%" height="600" type="application/pdf"></iframe>'
+        st.markdown(pdf_display, unsafe_allow_html=True)
+        
+        if st.button("Close PDF"):
+            st.session_state.current_pdf = None
+            st.rerun()
 # Run the application
 if __name__ == "__main__":
     main()

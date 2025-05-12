@@ -493,7 +493,7 @@ def send_email(to_email, subject, content, attachments=None, pdf_content=None, s
         # Attach the PDF if provided
         if pdf_content:
             attachment = MIMEApplication(base64.b64decode(pdf_content), _subtype="pdf")
-            attachment.add_header("Content-Disposition", "attachment", filename="offer_letter.pdf")
+            attachment.add_header("Content-Disposition", "attachment", filename="Offer_Letter.pdf")
             msg.attach(attachment)
 
         # Send the email
@@ -525,81 +525,6 @@ def send_email(to_email, subject, content, attachments=None, pdf_content=None, s
         return False
 
 # Function to send notification emails with API instead of SMTP
-def send_notification_email(subject, message, recipient=None, priority="normal"):
-    """
-    Send notification emails to specified recipients or default notification email
-    using API instead of SMTP
-    
-    Args:
-        subject (str): Email subject
-        message (str): Email message content
-        recipient (str, optional): Email recipient. If None, uses notification_email from session state
-        priority (str): Email priority (normal, high, urgent)
-    
-    Returns:
-        bool: True if email sent successfully, False otherwise
-    """
-    try:
-        # Get recipient email - use provided or default from session state
-        to_email = recipient if recipient else st.session_state.notification_email
-        
-        # Set priority headers based on priority level
-        if priority == "urgent":
-            subject = f"URGENT: {subject}"
-        elif priority == "high":
-            subject = f"HIGH PRIORITY: {subject}"
-            
-        # Create HTML email content with appropriate styling based on priority
-        html_content = f"""
-        <html>
-        <head>
-            <style>
-                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                .header {{ padding: 10px 0; border-bottom: 1px solid #eee; }}
-                .logo {{ font-size: 24px; font-weight: bold; color: #2E5090; }}
-                .content {{ padding: 20px 0; }}
-                .footer {{ padding: 10px 0; border-top: 1px solid #eee; font-size: 12px; color: #777; }}
-                {'.' if priority == "normal" else '.alert { padding: 15px; margin-bottom: 20px; border-radius: 4px;}'}
-                {'.' if priority == "normal" else '.urgent { background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }'}
-                {'.' if priority == "normal" else '.high { background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404; }'}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <div class="logo">AI Planet</div>
-                </div>
-                <div class="content">
-                    {"" if priority == "normal" else f'<div class="alert {"urgent" if priority == "urgent" else "high"}">This is a {"urgent" if priority == "urgent" else "high priority"} notification.</div>'}
-                    {message}
-                </div>
-                <div class="footer">
-                    <p>This is an automated message from AI Planet Onboarding System.</p>
-                    <p>© {datetime.now().year} AI Planet. All rights reserved.</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        
-        # For demonstration, log the notification in session state
-        st.session_state.notification_history.append({
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "recipient": to_email,
-            "subject": subject,
-            "message": message,
-            "priority": priority
-        })
-        
-        # Instead of SMTP, we'd implement API-based email service here
-        # Example API implementation would go here in production
-        
-        # For demonstration, simulate success
-        return True
-    except Exception as e:
-        print(f"Error sending notification email: {e}")
-        return False
 
 # Function to preview email before sending
 def preview_email(to_email, subject, content, pdf_content=None):
@@ -623,7 +548,7 @@ def preview_email(to_email, subject, content, pdf_content=None):
         
         with st.expander("Preview PDF Attachment"):
             # Display PDF preview
-            pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="400" type="application/pdf"></iframe>'
+            pdf_display = f'<iframe src="data:application/pdf;base64,{st.session_state.pdf_content}" width="100%" height="500"></iframe>'
             st.markdown(pdf_display, unsafe_allow_html=True)
     
     # Set up email configuration section
@@ -878,11 +803,7 @@ def offer_letter_generator():
                         </ul>
                         <p>The candidate has been requested to respond by {candidate_data['start_date']}.</p>
                         """
-                        
-                        send_notification_email(
-                            f"Offer Letter Sent to {candidate_data['name']}", 
-                            notification_message
-                        )
+                
                         
                         # Reset states and redirect to dashboard
                         st.session_state.email_confirmation_mode = False
@@ -903,7 +824,8 @@ def offer_letter_generator():
         
         if st.session_state.pdf_content:
             # Display PDF preview
-            pdf_display = f'<iframe src="data:application/pdf;base64,{st.session_state.pdf_content}" width="100%" height="500" type="application/pdf"></iframe>'
+            pdf_display = f'<iframe src="data:application/pdf;base64,{st.session_state.pdf_content}" width="100%" height="500"></iframe>'
+
             st.markdown(pdf_display, unsafe_allow_html=True)
             
             # Add option to open in Google Docs
@@ -1110,18 +1032,6 @@ def offer_letter_generator():
                 }
                 
                 # Check for intervention
-                intervention_type = check_human_intervention(candidate_data)
-                if intervention_type != "none":
-                    intervention_message = get_intervention_message(candidate_data, intervention_type)
-                    intervention_subject = f"Review Needed: New Offer Letter for {name}"
-                    
-                    # Send notification email with appropriate priority
-                    if intervention_type == "urgent":
-                        send_notification_email(intervention_subject, intervention_message, priority="urgent")
-                    elif intervention_type == "high_priority":
-                        send_notification_email(intervention_subject, intervention_message, priority="high")
-                    else:
-                        send_notification_email(intervention_subject, intervention_message)
                 
                 # Generate the offer letter PDF
                 pdf_content = generate_pdf_offer_letter(candidate_data)
@@ -1157,7 +1067,8 @@ def view_offer_letter(employee_id):
         pdf_content = generate_pdf_offer_letter(employee)
         
         # Display PDF preview
-        pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="500" type="application/pdf"></iframe>'
+        pdf_display = f'<iframe src="data:application/pdf;base64,{st.session_state.pdf_content}" width="100%" height="500"></iframe>'
+
         st.markdown(pdf_display, unsafe_allow_html=True)
         
         # Add option to open in Google Docs
@@ -1246,20 +1157,6 @@ def settings_page():
         with col1:
             test_email = st.text_input("Test Recipient Email", value=st.session_state.notification_email)
         
-        with col2:
-            if st.button("Send Test Email"):
-                if send_notification_email(
-                    "AI Planet Onboarding - Test Email",
-                    """
-                    <h2>Test Email</h2>
-                    <p>This is a test email from the AI Planet Onboarding System.</p>
-                    <p>If you received this email, your email configuration is working correctly.</p>
-                    """,
-                    recipient=test_email
-                ):
-                    st.success(f"✅ Test email sent to {test_email}")
-                else:
-                    st.error("Failed to send test email. Please check your API settings.")
                 
     # Other tabs implementation
 
@@ -1632,4 +1529,3 @@ def get_intervention_message(employee_data, intervention_type):
 # Run the application
 if __name__ == "__main__":
     main()
-

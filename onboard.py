@@ -99,7 +99,7 @@ COMPANY_INFO = {
     "name": "AI Planet",
     "address": "CIE IIIT Hyderabad, Vindhya C4, IIIT-H Campus, Gachibowli, Telangana 500032",
     "website": "www.aiplanet.com",
-    "logo_path": "logo.png",
+    "logo_path": "data\logo.png",
     "mission": "Revolutionizing industries through cutting-edge AI solutions",
     "vision": "To be the global leader in enterprise AI implementation and innovation",
     "legal_name": "DPhi Tech Private Limited"
@@ -304,9 +304,10 @@ def generate_pdf_offer_letter(candidate_data):
     pdf.set_font('Arial', '', 12)
     pdf.set_text_color(0, 0, 0)
 
-    
+    pdf.set_font('Arial', 'B', 12)
+    pdf.cell(0, 10, 'Offer Letter with AI Planet', 0, 1, 'C')
     # Add logo at the top right corner on first page - using provided logo
-    pdf.image('logo.png', x=160, y=10, w=30) if os.path.exists('logo.png') else None
+    pdf.image('data\logo.png', x=160, y=10, w=30) if os.path.exists('data\logo.png') else None
     
     # Add date
     pdf.set_font('Arial', '', 12)
@@ -326,40 +327,40 @@ def generate_pdf_offer_letter(candidate_data):
     
     # Letter content
     pdf.ln(10)
-    pdf.cell(0, 10, f'Dear {clean_for_latin1(candidate_data["name"].split()[0])},', 0, 1, 'L')
+    pdf.cell(0, 10, f'Dear {clean_for_latin1(candidate_data["name"])},', 0, 1, 'L')
     
     pdf.ln(5)
     pdf.set_font('Arial', '', 12)
-    content = f'I am delighted & excited to welcome you to AI Planet as a {clean_for_latin1(candidate_data["position"])}. At AI Planet, we believe that our team is our biggest strength and we are looking forward to strengthening it further with your addition. We are confident that you would play a significant role in the overall success of the community that we envision to build and wish you the most enjoyable, learning packed and truly meaningful experience with AI Planet.'
-    pdf.multi_cell(0, 6, clean_for_latin1(content))
+    #content = f'I am delighted & excited to welcome you to AI Planet as a {clean_for_latin1(candidate_data["position"])}. At AI Planet, we believe that our team is our biggest strength and we are looking forward to strengthening it further with your addition. We are confident that you would play a significant role in the overall success of the community that we envision to build and wish you the most enjoyable, learning packed and truly meaningful experience with AI Planet.'
+    #pdf.multi_cell(0, 6, clean_for_latin1(content))
+    pdf.set_font('Arial', '', 12); pdf.write(6, clean_for_latin1('I am delighted & excited to welcome you to AI Planet as a ')); pdf.set_font('Arial', 'B', 12); pdf.write(6, clean_for_latin1(candidate_data["position"])); pdf.set_font('Arial', '', 12); pdf.write(6, clean_for_latin1('. At AI Planet, we believe that our team is our biggest strength and we are looking forward to strengthening it further with your addition. We are confident that you would play a significant role in the overall success of the community that we envision to build and wish you the most enjoyable, learning packed and truly meaningful experience with AI Planet.'))
+    pdf.ln(10)
+    pdf.write(6, 'Your appointment will be governed by the terms and conditions presented in ');  pdf.set_font('Arial', 'B', 12) ;pdf.write(6, 'Annexure A.') ;pdf.set_font('Arial', '', 12); 
     
-    pdf.ln(5)
-    pdf.multi_cell(0, 6, 'Your appointment will be governed by the terms and conditions presented in Annexure A.')
-    
-    pdf.ln(5)
+    pdf.ln(10)
     pdf.multi_cell(0, 6, 'We look forward to you joining us. Please do not hesitate to call us for any information you may need. Also, please sign the duplicate of this offer as your acceptance and forward the same to us.')
     
-    pdf.ln(5)
+    pdf.ln(10)
     pdf.cell(0, 10, 'Congratulations!', 0, 1, 'L')
     
-    pdf.ln(15)
-    pdf.cell(0, 10, clean_for_latin1(candidate_data["hr_name"]), 0, 1, 'L')
+    pdf.image('data\chanukya-sign.png') if os.path.exists('data\chanukya-sign.png') else None
+    pdf.cell(0, 10, 'Chanukya Patnaik', 0, 1, 'L')
     pdf.cell(0, 6, 'Founder, AI Planet (DPhi)', 0, 1, 'L')
     
     # Company footer
-    pdf.ln(10)
-    pdf.set_font('Arial', '', 9)
+    pdf.ln(40)
+    pdf.set_font('Arial', '', 11)
     pdf.multi_cell(0, 5, clean_for_latin1(f'{COMPANY_INFO["legal_name"]} | {COMPANY_INFO["address"]}'))
     
     # Annexure A - Page 2
     pdf.add_page()
 
-    
+    #pdf.set_font('Arial', 'Offer letter with AI Planet', 12)
     # Add logo at the top right corner on second page
-    pdf.image('logo.png', x=160, y=10, w=30) if os.path.exists('logo.png') else None
+    pdf.image('data\logo.png', x=160, y=10, w=30) if os.path.exists('data\logo.png') else None
     
     pdf.set_font('Arial', 'B', 14)
-    pdf.set_text_color(0, 0, 150)  # Blue color
+    pdf.set_text_color(0, 0, 150)  # Blue colordata\data\logo.png
     pdf.cell(0, 15, 'Annexure A', 0, 1, 'L')
     
     pdf.set_font('Arial', '', 12)
@@ -376,13 +377,16 @@ def generate_pdf_offer_letter(candidate_data):
         f'We take data privacy and security very seriously and to maintain confidentiality of any students, customers, clients, and companies\' data and contact details that you may get access to during your engagement will be your responsibility. AI Planet operates on zero tolerance principle with regards to any breach of data security guidelines. At the completion of the engagement, you are expected to hand over all AI Planet work/data stored on your Personal Computer to your mentor and delete the same from your machine.',
         f'Under normal circumstances either the company or you may terminate this association by providing a notice of 30 days without assigning any reason. However, the company may terminate this agreement forthwith under situations of in-disciplinary behaviors.',
         f'During the appointment period you shall not engage yourselves directly or indirectly or in any capacity in any other organization (other than your college).'
+        f'You are expected to conduct yourself with utmost professionalism in dealing with your mentor, team members, colleagues, clients and customers and treat everyone with due respect.',
+        
     ]
     
     # Process each point to ensure it's clean for latin1 encoding
     points = [clean_for_latin1(point) for point in points]
-    
+    # Process each point to ensure it's clean for latin1 encoding and properly format bold text
+    pdf.ln(5)
     for i, point in enumerate(points, 1):
-        if i > 4:  # Add remaining points to page 3
+        if i > 7:  # Add remaining points to page 3
             break
         pdf.set_font('Arial', 'B', 12)
         pdf.cell(8, 6, f'{i}.', 0, 0)
@@ -394,7 +398,7 @@ def generate_pdf_offer_letter(candidate_data):
     
     # Company footer
     pdf.ln(10)
-    pdf.set_font('Arial', '', 9)
+    pdf.set_font('Arial', '', 11)
     pdf.multi_cell(0, 5, clean_for_latin1(f'{COMPANY_INFO["legal_name"]} | {COMPANY_INFO["address"]}'))
     
     # Page 3 with remaining points
@@ -402,12 +406,12 @@ def generate_pdf_offer_letter(candidate_data):
     
     
     # Add logo at the top right corner on third page
-    pdf.image('logo.png', x=160, y=10, w=30) if os.path.exists('logo.png') else None
-    
+    pdf.image('data\logo.png', x=160, y=10, w=30) if os.path.exists('data\logo.png') else None
+    pdf.ln(15)
     # Continue with remaining points
-    for i, point in enumerate(points[4:], 5):
+    for i, point in enumerate(points[8:], 8):
         pdf.set_font('Arial', 'B', 12)
-        pdf.cell(8, 6, f'{i}.', 0, 0)
+        pdf.cell(8, 6, f'{i}.', 12, 12)
         pdf.set_font('Arial', '', 12)
         x = pdf.get_x()
         y = pdf.get_y()
@@ -416,7 +420,6 @@ def generate_pdf_offer_letter(candidate_data):
     
     # Additional points
     extra_points = [
-        f'You are expected to conduct yourself with utmost professionalism in dealing with your mentor, team members, colleagues, clients and customers and treat everyone with due respect.',
         f'AI Planet is a start-up and we love people who like to go beyond the normal call of duty and can think out of the box. Surprise us with your passion, intelligence, creativity, and hard work – and expect appreciation & rewards to follow.',
         f'Expect constant and continuous objective feedback from your mentor and other team members and we encourage you to ask for and provide feedback at every possible opportunity. It is your right to receive and give feedback – this is the ONLY way we all can continuously push ourselves to do better.',
         f'Have fun at what you do and do the right thing – both the principles are core of what AI Planet stands for and we expect you to imbibe them in your day to day actions and continuously challenge us if we are falling short of expectations on either of them.',
@@ -449,9 +452,20 @@ def generate_pdf_offer_letter(candidate_data):
     pdf.cell(0, 10, 'Name: ________________', 0, 1, 'L')
     
     # Company footer
-    pdf.ln(10)
-    pdf.set_font('Arial', '', 9)
+    pdf.ln(90)
+    pdf.set_font('Arial', '', 11)
     pdf.multi_cell(0, 5, clean_for_latin1(f'{COMPANY_INFO["legal_name"]} | {COMPANY_INFO["address"]}'))
+    sanitized_name = re.sub(r'[^\w\s-]', '', candidate_data["name"]).strip().replace(' ', '_')
+    today_str = datetime.now().strftime("%Y%m%d")
+    filename = f"{sanitized_name}_{today_str}_offer_letter.pdf"
+    
+    # Define the full file path
+    file_path = DOCUMENTS_DIR / filename
+    
+    # Save the PDF to the file
+    pdf.output(str(file_path))
+    
+    # Also return the PDF as base64 string for display in the web app
     
     # Return PDF as base64 string
     return base64.b64encode(pdf.output(dest='S').encode('latin1')).decode('utf-8')
@@ -1618,3 +1632,4 @@ def get_intervention_message(employee_data, intervention_type):
 # Run the application
 if __name__ == "__main__":
     main()
+

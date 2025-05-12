@@ -161,19 +161,20 @@ ROLES = {
 OFFER_EMAIL_TEMPLATE = """
 Hi {Full_Name},
 
-I am delighted to welcome you to AI Planet as a {Position} and we'd like to extend you an offer to join us. Congratulations!
+I am delighted to welcome you to AI Planet as a **{Position}** and we'd like to extend you an offer to join us. Congratulations!
 
 We are confident that you would play a significant role in driving the vision of AI Planet forward and we look forward to having you onboard for what promises to be a rewarding journey.
 
-The details of your offer letter in the attached PDF. Please go through the same and feel free to ask if there are any questions.
+The details of your offer letter are in the attached PDF. Please go through the same and feel free to ask if there are any questions.
 
-If all is in order, please sign on all 3 pages of the offer letter (including the last page), and send a scanned copy back as your acceptance latest by {Start_Date}. Also, please check the details such as address or any other relevant details.
+If all is in order, please sign on all 3 pages of the offer letter (including the last page), and send a scanned copy back as your acceptance latest by **{Start_Date}**. Also, please check the details such as address or any other relevant details.
 
 I look forward to you joining the team and taking AI Planet to newer heights. If you have any questions, please don't hesitate to reach out to us.
 
-Best regards,
-{HR_Name}
+Best regards,  
+**{HR_Name}**
 """
+
 
 # Function to validate email format
 def is_valid_email(email):

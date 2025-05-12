@@ -908,14 +908,7 @@ def offer_letter_generator():
             st.markdown(pdf_display, unsafe_allow_html=True)
             
             # Add option to open in Google Docs
-            st.markdown("""
-            <a href="https://docs.google.com/document/create" target="_blank" style="text-decoration: none;">
-                <button style="background-color: #1e8e3e; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer;">
-                    Open in Google Docs (edit mode)
-                </button>
-            </a>
-            <p><small>Note: Download the PDF first, then upload it to Google Docs for editing.</small></p>
-            """, unsafe_allow_html=True)
+            
         
         col1, col2, col3 = st.columns(3)
         

@@ -99,7 +99,7 @@ COMPANY_INFO = {
     "name": "AI Planet",
     "address": "CIE IIIT Hyderabad, Vindhya C4, IIIT-H Campus, Gachibowli, Telangana 500032",
     "website": "www.aiplanet.com",
-    "logo_path": "data\logo.png",
+    "logo_path": "logo.png",
     "mission": "Revolutionizing industries through cutting-edge AI solutions",
     "vision": "To be the global leader in enterprise AI implementation and innovation",
     "legal_name": "DPhi Tech Private Limited"
@@ -308,7 +308,7 @@ def generate_pdf_offer_letter(candidate_data):
     pdf.set_font('Arial', 'B', 12)
     pdf.cell(0, 10, 'Offer Letter with AI Planet', 0, 1, 'C')
     # Add logo at the top right corner on first page - using provided logo
-    pdf.image('data\logo.png', x=160, y=10, w=30) if os.path.exists('data\logo.png') else None
+    pdf.image('logo.png', x=160, y=10, w=30) if os.path.exists('logo.png') else None
     
     # Add date
     pdf.set_font('Arial', '', 12)
@@ -358,10 +358,10 @@ def generate_pdf_offer_letter(candidate_data):
 
     #pdf.set_font('Arial', 'Offer letter with AI Planet', 12)
     # Add logo at the top right corner on second page
-    pdf.image('data\logo.png', x=160, y=10, w=30) if os.path.exists('data\logo.png') else None
+    pdf.image('logo.png', x=160, y=10, w=30) if os.path.exists('logo.png') else None
     
     pdf.set_font('Arial', 'B', 14)
-    pdf.set_text_color(0, 0, 150)  # Blue colordata\data\logo.png
+    pdf.set_text_color(0, 0, 150)  # Blue colordata\logo.png
     pdf.cell(0, 15, 'Annexure A', 0, 1, 'L')
     
     pdf.set_font('Arial', '', 12)
@@ -407,7 +407,7 @@ def generate_pdf_offer_letter(candidate_data):
     
     
     # Add logo at the top right corner on third page
-    pdf.image('data\logo.png', x=160, y=10, w=30) if os.path.exists('data\logo.png') else None
+    pdf.image('logo.png', x=160, y=10, w=30) if os.path.exists('logo.png') else None
     pdf.ln(15)
     # Continue with remaining points
     for i, point in enumerate(points[8:], 8):

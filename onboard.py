@@ -623,7 +623,7 @@ def preview_email(to_email, subject, content, pdf_content=None):
         
         with st.expander("Preview PDF Attachment"):
             # Display PDF preview
-            pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="400" type="application/pdf"></iframe>'
+            pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="400" ></iframe>'
             st.markdown(pdf_display, unsafe_allow_html=True)
     
     # Set up email configuration section
@@ -903,7 +903,7 @@ def offer_letter_generator():
         
         if st.session_state.pdf_content:
             # Display PDF preview
-            pdf_display = f'<iframe src="data:application/pdf;base64,{st.session_state.pdf_content}" width="100%" height="500" type="application/pdf"></iframe>'
+            pdf_display = f'<iframe src="data:application/pdf;base64,{st.session_state.pdf_content}" width="100%" height="500"></iframe>'
             st.markdown(pdf_display, unsafe_allow_html=True)
             
             # Add option to open in Google Docs
@@ -1157,7 +1157,7 @@ def view_offer_letter(employee_id):
         pdf_content = generate_pdf_offer_letter(employee)
         
         # Display PDF preview
-        pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="500" type="application/pdf"></iframe>'
+        pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="500"></iframe>'
         st.markdown(pdf_display, unsafe_allow_html=True)
         
         # Add option to open in Google Docs
@@ -1634,3 +1634,4 @@ if __name__ == "__main__":
     main()
 
 
+# Function to check if email is valid

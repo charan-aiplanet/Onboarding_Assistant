@@ -161,18 +161,18 @@ ROLES = {
 OFFER_EMAIL_TEMPLATE = """
 Hi {Full_Name},
 
-I am delighted to welcome you to AI Planet as a **{Position}** and we'd like to extend you an offer to join us. Congratulations!
+I am delighted to welcome you to AI Planet as a {Position} and we'd like to extend you an offer to join us. Congratulations!
 
 We are confident that you would play a significant role in driving the vision of AI Planet forward and we look forward to having you onboard for what promises to be a rewarding journey.
 
 The details of your offer letter are in the attached PDF. Please go through the same and feel free to ask if there are any questions.
 
-If all is in order, please sign on all 3 pages of the offer letter (including the last page), and send a scanned copy back as your acceptance latest by **{Start_Date}**. Also, please check the details such as address or any other relevant details.
+If all is in order, please sign on all 3 pages of the offer letter (including the last page), and send a scanned copy back as your acceptance latest by {Start_Date}. Also, please check the details such as address or any other relevant details.
 
 I look forward to you joining the team and taking AI Planet to newer heights. If you have any questions, please don't hesitate to reach out to us.
 
 Best regards,  
-**{HR_Name}**
+{HR_Name}
 """
 
 
@@ -1287,48 +1287,62 @@ def display_dashboard():
     pending_onboarding = sum(1 for emp in employees if emp.get('offer_accepted', False) and not emp.get('onboarding_completed', False))
     onboarding_completed = sum(1 for emp in employees if emp.get('onboarding_completed', False))
     
-    # Display statistics cards
+    # Display statistics cards with consistent sizing
     st.markdown("<h3>📊 Onboarding Overview</h3>", unsafe_allow_html=True)
     
     col1, col2, col3, col4, col5 = st.columns(5)
     
+    # Card styling with fixed width and height to ensure consistent sizing
+    card_style = """
+    text-align: center; 
+    background-color: {bg_color}; 
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 10px 10px;
+    height: 150px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    """
+    
     with col1:
         st.markdown(f"""
-        <div class="card" style="text-align: center; background-color: #e3f2fd; cursor: pointer;" onclick="window.location.href='#'">
+        <div style="{card_style.format(bg_color='#e3f2fd')}">
             <h1 style="color: #1976D2; font-size: 2.5rem; margin: 0;">{total_offers}</h1>
-            <p>Total Offers</p>
+            <p style="margin: 5px 0 0 0;">Total Offers</p>
         </div>
         """, unsafe_allow_html=True)
     
     with col2:
         st.markdown(f"""
-        <div class="card" style="text-align: center; background-color: #e8f5e9; cursor: pointer;" onclick="window.location.href='#'">
+        <div style="{card_style.format(bg_color='#e8f5e9')}">
             <h1 style="color: #388E3C; font-size: 2.5rem; margin: 0;">{offers_sent}</h1>
-            <p>Offers Sent</p>
+            <p style="margin: 5px 0 0 0;">Offers Sent</p>
         </div>
         """, unsafe_allow_html=True)
     
     with col3:
         st.markdown(f"""
-        <div class="card" style="text-align: center; background-color: #fff3e0; cursor: pointer;" onclick="window.location.href='#'">
+        <div style="{card_style.format(bg_color='#fff3e0')}">
             <h1 style="color: #F57C00; font-size: 2.5rem; margin: 0;">{offers_accepted}</h1>
-            <p>Offers Accepted</p>
+            <p style="margin: 5px 0 0 0;">Offers Accepted</p>
         </div>
         """, unsafe_allow_html=True)
     
     with col4:
         st.markdown(f"""
-        <div class="card" style="text-align: center; background-color: #e8eaf6; cursor: pointer;" onclick="window.location.href='#'">
+        <div style="{card_style.format(bg_color='#e8eaf6')}">
             <h1 style="color: #3F51B5; font-size: 2.5rem; margin: 0;">{pending_onboarding}</h1>
-            <p>Pending Onboarding</p>
+            <p style="margin: 5px 0 0 0;">Pending Onboarding</p>
         </div>
         """, unsafe_allow_html=True)
     
     with col5:
         st.markdown(f"""
-        <div class="card" style="text-align: center; background-color: #e0f7fa; cursor: pointer;" onclick="window.location.href='#'">
+        <div style="{card_style.format(bg_color='#e0f7fa')}">
             <h1 style="color: #00ACC1; font-size: 2.5rem; margin: 0;">{onboarding_completed}</h1>
-            <p>Onboarding Completed</p>
+            <p style="margin: 5px 0 0 0;">Onboarding Completed</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -1519,8 +1533,8 @@ def display_dashboard():
         # Filter employees based on search term if provided
         if search_term:
             filtered_employees = [emp for emp in employees if 
-                                 search_term.lower() in emp.get('name', '').lower() or 
-                                 search_term.lower() in emp.get('position', '').lower()]
+                                search_term.lower() in emp.get('name', '').lower() or 
+                                search_term.lower() in emp.get('position', '').lower()]
         else:
             filtered_employees = employees
             
@@ -1544,14 +1558,14 @@ def display_dashboard():
         elif sort_option == "Start Date (Recent)":
             # Sort by start date, most recent first
             filtered_employees = sorted(filtered_employees, 
-                                      key=lambda x: datetime.strptime(x.get('start_date', '2000-01-01'), "%B %d, %Y") 
-                                      if 'start_date' in x and x['start_date'] else datetime(2000, 1, 1),
-                                      reverse=True)
+                                    key=lambda x: datetime.strptime(x.get('start_date', '2000-01-01'), "%B %d, %Y") 
+                                    if 'start_date' in x and x['start_date'] else datetime(2000, 1, 1),
+                                    reverse=True)
         elif sort_option == "Start Date (Oldest)":
             # Sort by start date, oldest first
             filtered_employees = sorted(filtered_employees, 
-                                      key=lambda x: datetime.strptime(x.get('start_date', '3000-01-01'), "%B %d, %Y") 
-                                      if 'start_date' in x and x['start_date'] else datetime(3000, 1, 1))
+                                    key=lambda x: datetime.strptime(x.get('start_date', '3000-01-01'), "%B %d, %Y") 
+                                    if 'start_date' in x and x['start_date'] else datetime(3000, 1, 1))
         
         if filtered_employees:
             # Create a table with columns for Name, Position, Status, and Actions

@@ -99,7 +99,7 @@ COMPANY_INFO = {
     "name": "AI Planet",
     "address": "CIE IIIT Hyderabad, Vindhya C4, IIIT-H Campus, Gachibowli, Telangana 500032",
     "website": "www.aiplanet.com",
-    "logo_path": "assets/logo.png",
+    "logo_path": "logo.png",
     "mission": "Revolutionizing industries through cutting-edge AI solutions",
     "vision": "To be the global leader in enterprise AI implementation and innovation",
     "legal_name": "DPhi Tech Private Limited"
@@ -306,7 +306,7 @@ def generate_pdf_offer_letter(candidate_data):
 
     
     # Add logo at the top right corner on first page - using provided logo
-    pdf.image('assets/logo.png', x=160, y=10, w=30) if os.path.exists('assets/logo.png') else None
+    pdf.image('logo.png', x=160, y=10, w=30) if os.path.exists('logo.png') else None
     
     # Add date
     pdf.set_font('Arial', '', 12)
@@ -356,7 +356,7 @@ def generate_pdf_offer_letter(candidate_data):
 
     
     # Add logo at the top right corner on second page
-    pdf.image('assets/logo.png', x=160, y=10, w=30) if os.path.exists('assets/logo.png') else None
+    pdf.image('logo.png', x=160, y=10, w=30) if os.path.exists('logo.png') else None
     
     pdf.set_font('Arial', 'B', 14)
     pdf.set_text_color(0, 0, 150)  # Blue color
@@ -402,7 +402,7 @@ def generate_pdf_offer_letter(candidate_data):
     
     
     # Add logo at the top right corner on third page
-    pdf.image('assets/logo.png', x=160, y=10, w=30) if os.path.exists('assets/logo.png') else None
+    pdf.image('logo.png', x=160, y=10, w=30) if os.path.exists('logo.png') else None
     
     # Continue with remaining points
     for i, point in enumerate(points[4:], 5):

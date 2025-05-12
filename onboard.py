@@ -1407,131 +1407,253 @@ def display_dashboard():
         else:
             st.info("No data available for the role distribution chart.")
     
-    # Recent activities and pending tasks section
-    st.markdown("<h3>🔍 Recent Activities</h3>", unsafe_allow_html=True)
-    
-    left_col, right_col = st.columns(2)
-    
-    with left_col:
-        st.markdown("""
-        <div class="card">
-            <h4>Recent Activities</h4>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Get recent activities from database - in a real app, this would query database with timestamps
-        # Sort employees by updated_at to get recent activities
-        sorted_employees = sorted(employees, key=lambda x: x.get('updated_at', ''), reverse=True)[:5]
-        
-        if sorted_employees:
-            for i, emp in enumerate(sorted_employees):
-                activity = {}
-                activity["timestamp"] = emp.get('updated_at', datetime.now().strftime("%Y-%m-%d %H:%M"))
+    # Function to update employee status
+    def update_employee_status(employee_id, new_status):
+        employee = get_employee_by_id(employee_id)
+        if employee:
+            # Get current status for comparison
+            if employee.get('onboarding_completed', False):
+                current_status = "Onboarding Completed"
+            elif employee.get('offer_accepted', False):
+                current_status = "Offer Accepted"
+            elif employee.get('offer_sent', False):
+                current_status = "Offer Sent"
+            else:
+                current_status = "Offer Generated"
                 
-                if emp.get('onboarding_completed', False):
-                    activity["activity"] = f"Onboarding completed for {emp['name']}"
-                elif emp.get('offer_accepted', False):
-                    activity["activity"] = f"Offer accepted by {emp['name']}"
-                elif emp.get('offer_sent', False):
-                    activity["activity"] = f"Offer letter sent to {emp['name']}"
-                else:
-                    activity["activity"] = f"Offer letter generated for {emp['name']}"
-                    
-                activity["role"] = emp['position']
-                activity["id"] = emp['id']
+            # Skip if status hasn't changed
+            if current_status == new_status:
+                return
                 
-                # Create a styled activity row with a view button
-                st.markdown(f"""
-                <div style="padding: 10px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
-                    <div style="flex-grow: 1;">
-                        <p style="margin-bottom: 0;"><strong>{activity['timestamp']}</strong>: {activity['activity']} - <span style="color: #2E5090;">{activity['role']}</span></p>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Add view button with consistent styling
-                if st.button("👁️ View", key=f"view_activity_{i}", help=f"View details for {emp['name']}", 
-                           use_container_width=False):
-                    st.session_state.viewing_employee_id = activity["id"]
-                    st.rerun()
-        else:
-            # If no activities, show sample ones
-            sample_activities = [
-                {"timestamp": "2025-05-06 14:30", "activity": "Offer letter sent to Jane Smith", "role": "Full Stack Developer", "id": "sample1"},
-                {"timestamp": "2025-05-05 11:15", "activity": "Offer accepted by John Doe", "role": "Data Scientist", "id": "sample2"},
-                {"timestamp": "2025-05-05 09:00", "activity": "Offer letter generated for Alex Johnson", "role": "Business Analyst", "id": "sample3"},
-                {"timestamp": "2025-05-04 16:45", "activity": "Onboarding completed for Sarah Williams", "role": "Product Manager", "id": "sample4"},
-                {"timestamp": "2025-05-04 10:20", "activity": "Offer letter generated for Michael Brown", "role": "Full Stack Developer", "id": "sample5"}
-            ]
+            # Set status flags based on new status
+            if new_status == "Offer Generated":
+                employee['offer_sent'] = False
+                employee['offer_accepted'] = False
+                employee['onboarding_completed'] = False
+            elif new_status == "Offer Sent":
+                employee['offer_sent'] = True
+                employee['offer_sent_date'] = datetime.now().strftime("%Y-%m-%d")
+                employee['offer_accepted'] = False
+                employee['onboarding_completed'] = False
+            elif new_status == "Offer Accepted":
+                employee['offer_sent'] = True
+                # Set offer_sent_date if not already set
+                if not employee.get('offer_sent_date'):
+                    employee['offer_sent_date'] = datetime.now().strftime("%Y-%m-%d")
+                employee['offer_accepted'] = True
+                employee['onboarding_completed'] = False
+            elif new_status == "Onboarding Completed":
+                employee['offer_sent'] = True
+                # Set offer_sent_date if not already set
+                if not employee.get('offer_sent_date'):
+                    employee['offer_sent_date'] = datetime.now().strftime("%Y-%m-%d")
+                employee['offer_accepted'] = True
+                employee['onboarding_completed'] = True
             
-            for i, activity in enumerate(sample_activities):
-                # Create a styled activity row with a view button
-                st.markdown(f"""
-                <div style="padding: 10px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
-                    <div style="flex-grow: 1;">
-                        <p style="margin-bottom: 0;"><strong>{activity['timestamp']}</strong>: {activity['activity']} - <span style="color: #2E5090;">{activity['role']}</span></p>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+            # Save updated employee data
+            save_employee(employee)
+            
+            # Add a notification about the status change
+            status_change_msg = f"""
+            <h2>Status Update</h2>
+            <p>The status for <strong>{employee['name']}</strong> has been updated from <strong>{current_status}</strong> to <strong>{new_status}</strong>.</p>
+            <p><strong>Position:</strong> {employee['position']}</p>
+            <p><strong>Start Date:</strong> {employee.get('start_date', 'Not set')}</p>
+            """
+            
+            # Set notification priority based on status
+            priority = "normal"
+            if new_status == "Offer Accepted":
+                priority = "high"
+            elif new_status == "Onboarding Completed":
+                priority = "normal"
                 
-                # For sample data, show disabled buttons
-                st.button("👁️ View", key=f"view_sample_{i}", disabled=True)
+            # Send notification email about status change
+            send_notification_email(
+                f"Status Changed: {employee['name']} - {new_status}",
+                status_change_msg,
+                priority=priority
+            )
+            
+            st.success(f"Status updated for {employee['name']} to {new_status}")
+            
+            # Force refresh to update dashboard counts
+            st.rerun()
     
-    with right_col:
-        st.markdown("""
-        <div class="card">
-            <h4>Quick Actions</h4>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Create clickable button for generating new offer letter
-        if st.button("✨ Generate New Offer Letter", key="dashboard_new_offer", 
-                  help="Create a new offer letter", use_container_width=True):
-            # Direct link to the Offer Letter Generator page
+    # New tabular view of all candidates with status dropdown
+    st.markdown("<h3>👥 Candidate Management</h3>", unsafe_allow_html=True)
+    
+    # Add a button for generating new offer letter above the table
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        if st.button("✨ Generate New Offer Letter", use_container_width=True):
             st.session_state.page = "Offer Letter Generator"
             st.rerun()
-        
-        # Pending actions section
-        st.markdown("""
-        <div class="card" style="margin-top: 20px;">
-            <h4>Pending Actions</h4>
+    
+    # Add search and filter options
+    with col2:
+        col2a, col2b = st.columns([2, 1])
+        with col2a:
+            search_term = st.text_input("🔍 Search by name or role", "")
+        with col2b:
+            sort_option = st.selectbox(
+                "Sort by:",
+                ["Name (A-Z)", "Name (Z-A)", "Status", "Start Date (Recent)", "Start Date (Oldest)"]
+            )
+    
+    # Create a container for the table with a card-like appearance
+    st.markdown("""
+    <div class="card">
+        <h4 style="margin-bottom: 15px;">Candidate Status Management</h4>
+        <div style="display: flex; font-weight: bold; padding: 10px 0; border-bottom: 2px solid #eee;">
+            <div style="flex: 2;">Name</div>
+            <div style="flex: 2;">Position</div>
+            <div style="flex: 1.5;">Start Date</div>
+            <div style="flex: 2;">Status</div>
+            <div style="flex: 1.5;">Actions</div>
         </div>
-        """, unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
+    
+    # Display table of employees with status dropdown
+    if employees:
+        # Filter employees based on search term if provided
+        if search_term:
+            filtered_employees = [emp for emp in employees if 
+                                 search_term.lower() in emp.get('name', '').lower() or 
+                                 search_term.lower() in emp.get('position', '').lower()]
+        else:
+            filtered_employees = employees
+            
+        # Add sorting functionality
+        if sort_option == "Name (A-Z)":
+            filtered_employees = sorted(filtered_employees, key=lambda x: x.get('name', '').lower())
+        elif sort_option == "Name (Z-A)":
+            filtered_employees = sorted(filtered_employees, key=lambda x: x.get('name', '').lower(), reverse=True)
+        elif sort_option == "Status":
+            # Define a custom sort key function for status
+            def status_key(emp):
+                if emp.get('onboarding_completed', False):
+                    return 4
+                elif emp.get('offer_accepted', False):
+                    return 3
+                elif emp.get('offer_sent', False):
+                    return 2
+                else:
+                    return 1
+            filtered_employees = sorted(filtered_employees, key=status_key, reverse=True)
+        elif sort_option == "Start Date (Recent)":
+            # Sort by start date, most recent first
+            filtered_employees = sorted(filtered_employees, 
+                                      key=lambda x: datetime.strptime(x.get('start_date', '2000-01-01'), "%B %d, %Y") 
+                                      if 'start_date' in x and x['start_date'] else datetime(2000, 1, 1),
+                                      reverse=True)
+        elif sort_option == "Start Date (Oldest)":
+            # Sort by start date, oldest first
+            filtered_employees = sorted(filtered_employees, 
+                                      key=lambda x: datetime.strptime(x.get('start_date', '3000-01-01'), "%B %d, %Y") 
+                                      if 'start_date' in x and x['start_date'] else datetime(3000, 1, 1))
         
-        # Find employees with pending actions
-        pending_actions = []
-        
-        for emp in employees:
-            if not emp.get('offer_sent', False):
-                pending_actions.append({
+        if filtered_employees:
+            # Create a table with columns for Name, Position, Status, and Actions
+            table_data = []
+            for emp in filtered_employees:
+                # Determine current status for default selection
+                if emp.get('onboarding_completed', False):
+                    current_status = "Onboarding Completed"
+                elif emp.get('offer_accepted', False):
+                    current_status = "Offer Accepted"
+                elif emp.get('offer_sent', False):
+                    current_status = "Offer Sent"
+                else:
+                    current_status = "Offer Generated"
+                
+                # Add to table data
+                table_data.append({
+                    "id": emp['id'],
                     "name": emp['name'],
-                    "action": "Send offer letter",
-                    "id": emp['id']
+                    "position": emp['position'],
+                    "start_date": emp.get('start_date', 'Not set'),
+                    "status": current_status
                 })
-            elif not emp.get('offer_accepted', False):
-                pending_actions.append({
-                    "name": emp['name'],
-                    "action": "Follow up on offer",
-                    "id": emp['id']
-                })
-            elif not emp.get('onboarding_completed', False):
-                pending_actions.append({
-                    "name": emp['name'],
-                    "action": "Complete onboarding",
-                    "id": emp['id']
-                })
-        
-        # Display pending actions without buttons (removed as requested)
-        if pending_actions:
-            for i, action in enumerate(pending_actions[:5]):  # Show top 5 pending actions
-                # Just display the action without buttons
+            
+            # Create DataFrame for display
+            df = pd.DataFrame(table_data)
+            
+            # Create a custom table with interactive elements
+            for i, row in enumerate(table_data):
+                # Determine row background color based on status
+                if row['status'] == "Onboarding Completed":
+                    row_bg_color = "#e8f5e9"  # Light green
+                elif row['status'] == "Offer Accepted":
+                    row_bg_color = "#fff3e0"  # Light orange
+                elif row['status'] == "Offer Sent":
+                    row_bg_color = "#e3f2fd"  # Light blue
+                else:
+                    row_bg_color = "#f5f5f5"  # Light gray
+                
+                # Create row container with background color
                 st.markdown(f"""
-                <div style="padding: 10px; border-bottom: 1px solid #eee;">
-                    <p>{action['name']} - <strong>{action['action']}</strong></p>
+                <div style="display: flex; padding: 10px 0; border-bottom: 1px solid #eee; background-color: {row_bg_color}; border-radius: 4px; margin-bottom: 5px; padding: 10px;">
                 </div>
                 """, unsafe_allow_html=True)
+                
+                # Inside the row, use columns for layout
+                col1, col2, col3, col4, col5 = st.columns([2, 2, 1.5, 2, 1.5])
+                
+                with col1:
+                    st.markdown(f"**{row['name']}**")
+                
+                with col2:
+                    st.markdown(row['position'])
+                
+                with col3:
+                    st.markdown(row['start_date'])
+                
+                with col4:
+                    # Status dropdown that updates database on change
+                    status_options = ["Offer Generated", "Offer Sent", "Offer Accepted", "Onboarding Completed"]
+                    status_index = status_options.index(row['status'])
+                    
+                    new_status = st.selectbox(
+                        "Status",
+                        status_options,
+                        index=status_index,
+                        key=f"status_{row['id']}",
+                        label_visibility="collapsed"
+                    )
+                    
+                    # Check if status changed and update if needed
+                    if new_status != row['status']:
+                        update_employee_status(row['id'], new_status)
+                
+                with col5:
+                    view_btn = st.button("👁️ View", key=f"view_{row['id']}")
+                    if view_btn:
+                        st.session_state.viewing_employee_id = row['id']
+                        st.rerun()
         else:
-            st.info("No pending actions.")
+            st.info("No results match your search criteria.")
+    else:
+        st.info("No candidates found in the system.")
+    
+    # Add helpful information at the bottom of the table
+    st.markdown("""
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div style="margin-top: 15px; padding: 10px; background-color: #f0f9ff; border-radius: 5px; border-left: 4px solid #2E5090;">
+        <h4 style="margin: 0 0 10px 0;">💡 Using the Candidate Status Management Table</h4>
+        <p>You can update a candidate's status at any time by selecting a new option from the dropdown menu. The dashboard statistics will update automatically.</p>
+        <ul>
+            <li><strong>Offer Generated</strong>: The offer has been created but not yet sent to the candidate.</li>
+            <li><strong>Offer Sent</strong>: The offer has been emailed to the candidate and awaiting their response.</li>
+            <li><strong>Offer Accepted</strong>: The candidate has accepted the offer and is awaiting onboarding.</li>
+            <li><strong>Onboarding Completed</strong>: The candidate has completed all onboarding requirements and is ready to start.</li>
+        </ul>
+        <p>Click the <strong>View</strong> button to see the candidate's full offer letter and details.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # Function to check if human intervention is needed
 def check_human_intervention(employee_data):

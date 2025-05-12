@@ -1,4 +1,3 @@
-# Email notification system
 import streamlit as st
 import pandas as pd
 import smtplib
@@ -304,10 +303,7 @@ def generate_pdf_offer_letter(candidate_data):
     # Set the font and colors
     pdf.set_font('Arial', '', 12)
     pdf.set_text_color(0, 0, 0)
-    
-    # Add title centered on the first page
-    pdf.set_font('Arial', 'B', 16)
-    pdf.cell(0, 20, 'Offer letter with AI Planet', 0, 1, 'C')
+
     
     # Add logo at the top right corner on first page - using provided logo
     pdf.image('assets/logo.png', x=160, y=10, w=30) if os.path.exists('assets/logo.png') else None
@@ -325,9 +321,8 @@ def generate_pdf_offer_letter(candidate_data):
     
     pdf.set_font('Arial', '', 12)
     pdf.set_text_color(0, 0, 0)  # Black color
-    pdf.cell(0, 10, 'Address:', 0, 1, 'L')
-    pdf.cell(0, 10, 'Email:', 0, 1, 'L')
-    pdf.cell(0, 10, 'Phone no:', 0, 1, 'L')
+    pdf.cell(0, 10, f'Address: {candidate_data["address"]}', 0, 1, 'L')
+    pdf.cell(0, 10, f'Email: {candidate_data["email"]}', 0, 1, 'L', )
     
     # Letter content
     pdf.ln(10)
@@ -358,10 +353,7 @@ def generate_pdf_offer_letter(candidate_data):
     
     # Annexure A - Page 2
     pdf.add_page()
-    
-    # Add title left-aligned on subsequent pages
-    pdf.set_font('Arial', 'B', 16)
-    pdf.cell(120, 20, 'Offer letter with AI Planet', 0, 1, 'L')
+
     
     # Add logo at the top right corner on second page
     pdf.image('assets/logo.png', x=160, y=10, w=30) if os.path.exists('assets/logo.png') else None
@@ -408,9 +400,6 @@ def generate_pdf_offer_letter(candidate_data):
     # Page 3 with remaining points
     pdf.add_page()
     
-    # Add title left-aligned on subsequent pages
-    pdf.set_font('Arial', 'B', 16)
-    pdf.cell(120, 20, 'Offer letter with AI Planet', 0, 1, 'L')
     
     # Add logo at the top right corner on third page
     pdf.image('assets/logo.png', x=160, y=10, w=30) if os.path.exists('assets/logo.png') else None
@@ -470,40 +459,52 @@ def generate_pdf_offer_letter(candidate_data):
 # Alternative email sending function using API instead of SMTP 
 def send_email(to_email, subject, content, attachments=None, pdf_content=None, sender_name=None):
     try:
-        # Display email information in a well-formatted way
-        st.success(f"📧 Email preparation completed")
+
+        # This would be implemented with a real API in production
+        # Example implementation with SendGrid or Mailgun would go here
+        # Set up the SMTP server
+        smtp_server = "smtp.gmail.com"
+        smtp_port = 587
+        sender_email = "lukkashivacharan@gmail.com"
+        sender_password = "trgy ujlb zbdz bupo"  # Replace with your email password or app-specific password
+
+        # Create the email message
+        msg = MIMEMultipart()
+        msg["From"] = sender_email
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(content, "plain"))
+        #st.info("alsdkfjasldfkj")
+
+        # Attach the PDF if provided
+        if pdf_content:
+            attachment = MIMEApplication(base64.b64decode(pdf_content), _subtype="pdf")
+            attachment.add_header("Content-Disposition", "attachment", filename="offer_letter.pdf")
+            msg.attach(attachment)
+
+        # Send the email
+        try:
+            with open("sldfkj.txt", "w") as f:
+                f.write("sldfjasldkjf")
+            with smtplib.SMTP(smtp_server, smtp_port) as server:    
+                server.starttls()
+                server.login(sender_email, sender_password)
+                server.send_message(msg)
+                
+                with open("sldfkj.txt", "w") as f:
+                    f.write("Email sent successfully")
+                
+        except Exception as e:
+            #st.info("lsdjaf;lsdkfj")
+            st.error(str(e))
+            with open("sldfkj.txt", "w") as f:
+                f.write(f"Email not sent successfully {str(e)}")
+
+        st.success(f"✅ Email successfully sent to {to_email} via SMTP!")
         
-        email_info = f"""
-        **To:** {to_email}
-        **From:** {sender_name if sender_name else 'HR Team'} <lukkashivacharan@gmail.com>
-        **Subject:** {subject}
-        
-        **Email Content:**
-        {content}
-        
-        **Attachments:** AI Planet Offer Letter (PDF)
-        """
-        
-        st.info(email_info)
-        
-        # Create a custom filename with candidate name
-        if 'offer_letter_data' in st.session_state and st.session_state.offer_letter_data:
-            candidate_name = st.session_state.offer_letter_data.get("name", "Candidate")
-            pdf_filename = f"AI Planet_{candidate_name}_Offer_Letter.pdf"
-        else:
-            pdf_filename = "AI Planet_Offer_Letter.pdf"
-        
-        if st.button("Send Email Now"):
-            # Simulate API-based email sending
-            st.info(f"Sending email via API service using lukkashivacharan@gmail.com...")
-            
-            # This would be implemented with a real API in production
-            # Example implementation with SendGrid or Mailgun would go here
-            
-            # For demonstration purposes, simulate success
-            st.success(f"✅ Email successfully sent to {to_email} via email API!")
-            return True
-        return False
+        # For demonstration purposes, simulate success
+        st.success(f"✅ Email successfully sent to {to_email} via email API!")
+        return True
     
     except Exception as e:
         st.error(f"Failed to prepare email: {str(e)}")
@@ -806,64 +807,81 @@ def offer_letter_generator():
                 # First, check if human intervention is needed
                 intervention_type = check_human_intervention(candidate_data)
                 
-                # Send notification if needed
-                if intervention_type != "none":
-                    intervention_message = get_intervention_message(candidate_data, intervention_type)
-                    intervention_subject = f"Intervention Required: Offer Letter for {candidate_data['name']}"
-                    
-                    # Send notification email with appropriate priority
-                    if intervention_type == "urgent":
-                        send_notification_email(intervention_subject, intervention_message, priority="urgent")
-                    elif intervention_type == "high_priority":
-                        send_notification_email(intervention_subject, intervention_message, priority="high")
-                    else:
-                        send_notification_email(intervention_subject, intervention_message)
-                    
-                    # Notify user that additional review may be needed
-                    st.warning(f"⚠️ Some issues were detected that may require additional review. A notification has been sent to {st.session_state.notification_email}.")
                 
-                # Send the email with the edited details
-                if send_email(
-                    to_email=edited_email, 
-                    subject=edited_subject, 
-                    content=edited_content,
-                    pdf_content=st.session_state.pdf_content,
-                    sender_name=candidate_data["hr_name"]
-                ):
-                    # Update the candidate data
-                    candidate_data["email"] = edited_email  # Update email if changed
-                    candidate_data["offer_sent"] = True
-                    candidate_data["offer_sent_date"] = datetime.now().strftime("%Y-%m-%d")
-                    save_employee(candidate_data)
+                # Display email information in a well-formatted way
+                st.success(f"📧 Email preparation completed")
+                
+                email_info = f"""
+                **To:** {edited_email}
+                **From:** {candidate_data["hr_name"] if candidate_data["hr_name"] else 'HR Team'} <lukkashivacharan@gmail.com>
+                **Subject:** {edited_subject}
+                
+                **Email Content:**
+                {edited_content}
+                
+                **Attachments:** AI Planet Offer Letter (PDF)
+                """
+                
+                st.info(email_info)
+                
+                # Create a custom filename with candidate name
+                if 'offer_letter_data' in st.session_state and st.session_state.offer_letter_data:
+                    candidate_name = st.session_state.offer_letter_data.get("name", "Candidate")
+                    pdf_filename = f"AI Planet_{candidate_name}_Offer_Letter.pdf"
+                else:
+                    pdf_filename = "AI Planet_Offer_Letter.pdf"
+                
+            
+                # Simulate API-based email sending
+                st.info(f"Sending email via API service using lukkashivacharan@gmail.com...")
+                
+                with open("sldfkj.txt", "w") as f:
+                    f.write("Sending email via API service using")
                     
-                    # Also send a notification about the offer letter being sent
-                    notification_message = f"""
-                    <h2>Offer Letter Sent</h2>
-                    <p>An offer letter has been sent to <strong>{candidate_data['name']}</strong> for the position of {candidate_data['position']}.</p>
-                    <p><strong>Details:</strong></p>
-                    <ul>
-                        <li><strong>Email:</strong> {edited_email}</li>
-                        <li><strong>Start Date:</strong> {candidate_data['start_date']}</li>
-                        <li><strong>Monthly Salary:</strong> ₹{candidate_data['annual_salary']}</li>
-                    </ul>
-                    <p>The candidate has been requested to respond by {candidate_data['start_date']}.</p>
-                    """
-                    
-                    send_notification_email(
-                        f"Offer Letter Sent to {candidate_data['name']}", 
-                        notification_message
-                    )
-                    
-                    # Reset states and redirect to dashboard
-                    st.session_state.email_confirmation_mode = False
-                    st.session_state.preview_mode = False
-                    st.session_state.offer_letter_data = None
-                    st.session_state.pdf_content = None
-                    
-                    # Show success message and redirect
-                    st.success("Offer letter email sent successfully!")
-                    st.session_state.page = "Dashboard"
-                    st.rerun()
+                def func():
+                    if send_email(
+                        to_email=edited_email, 
+                        subject=edited_subject, 
+                        content=edited_content,
+                        pdf_content=st.session_state.pdf_content,
+                        sender_name=candidate_data["hr_name"]
+                    ):
+                        # Update the candidate data
+                        candidate_data["email"] = edited_email  # Update email if changed
+                        candidate_data["offer_sent"] = True
+                        candidate_data["offer_sent_date"] = datetime.now().strftime("%Y-%m-%d")
+                        save_employee(candidate_data)
+                        
+                        # Also send a notification about the offer letter being sent
+                        notification_message = f"""
+                        <h2>Offer Letter Sent</h2>
+                        <p>An offer letter has been sent to <strong>{candidate_data['name']}</strong> for the position of {candidate_data['position']}.</p>
+                        <p><strong>Details:</strong></p>
+                        <ul>
+                            <li><strong>Email:</strong> {edited_email}</li>
+                            <li><strong>Start Date:</strong> {candidate_data['start_date']}</li>
+                            <li><strong>Monthly Salary:</strong> ₹{candidate_data['annual_salary']}</li>
+                        </ul>
+                        <p>The candidate has been requested to respond by {candidate_data['start_date']}.</p>
+                        """
+                        
+                        send_notification_email(
+                            f"Offer Letter Sent to {candidate_data['name']}", 
+                            notification_message
+                        )
+                        
+                        # Reset states and redirect to dashboard
+                        st.session_state.email_confirmation_mode = False
+                        st.session_state.preview_mode = False
+                        st.session_state.offer_letter_data = None
+                        st.session_state.pdf_content = None
+                        
+                        # Show success message and redirect
+                        st.success("Offer letter email sent successfully!")
+                        st.session_state.page = "Dashboard"
+
+                st.button("Send Email Now", on_click=func)
+
     
     elif st.session_state.preview_mode:
         # Display preview of the offer letter with validation options
@@ -902,11 +920,7 @@ def offer_letter_generator():
         with col3:
             if st.button("Proceed to Send Email"):
                 # Check for intervention before going to email confirmation
-                intervention_type = check_human_intervention(st.session_state.offer_letter_data)
-                if intervention_type == "urgent":
-                    # For urgent interventions, show a warning but allow proceeding
-                    st.warning("⚠️ **URGENT REVIEW NEEDED**: The start date is very close. Please ensure all information is correct before sending.")
-                
+             
                 # Switch to email confirmation mode
                 st.session_state.email_confirmation_mode = True
                 st.rerun()
@@ -940,7 +954,7 @@ def offer_letter_generator():
                     end_date = None
                     
                 annual_salary = st.number_input("Monthly Salary (₹)", min_value=0, value=int(candidate_data.get("annual_salary", "37500").replace(",", "")))
-                reporting_manager = st.text_input("Reporting Manager", value=candidate_data.get("reporting_manager", ""))
+                reporting_manager = st.text_input("Reporting Manager", value=candidate_data.get("reporting_manager", "Chanukya Patnaik"))
             
             st.subheader("Additional Details")
             
@@ -954,7 +968,7 @@ def offer_letter_generator():
                 benefits = st.text_area("Benefits", value=candidate_data.get("benefits", "Health insurance; flexible work hours; remote work options"))
                 contingencies = st.text_area("Contingencies", value=candidate_data.get("contingencies", "successful background check and reference verification"))
             
-            hr_name = st.text_input("HR Representative Name", value=candidate_data.get("hr_name", "Chanukya Patnaik"))
+            hr_name = st.text_input("HR Representative Name", value=candidate_data.get("hr_name", "Eswar Viswanathan"))
             
             update_submitted = st.form_submit_button("Update Offer Letter")
         
@@ -1031,7 +1045,7 @@ def offer_letter_generator():
                     end_date = None
                     
                 annual_salary = st.number_input("Monthly Salary (₹)", min_value=0, value=37500)
-                reporting_manager = st.text_input("Reporting Manager")
+                reporting_manager = st.text_input("Reporting Manager","Chanukya Patnaik")
             
             st.subheader("Additional Details")
             
@@ -1045,7 +1059,7 @@ def offer_letter_generator():
                 benefits = st.text_area("Benefits", "Health insurance; flexible work hours; remote work options")
                 contingencies = st.text_area("Contingencies", "successful background check and reference verification")
             
-            hr_name = st.text_input("HR Representative Name", "Chanukya Patnaik")
+            hr_name = st.text_input("HR Representative Name", "Eswar Viswanathan")
             
             submitted = st.form_submit_button("Generate Offer Letter")
         
@@ -1122,30 +1136,25 @@ def view_offer_letter(employee_id):
     # Get employee data
     employee = get_employee_by_id(employee_id)
     
-    # Update the PDF display part in view_offer_letter() function
     if employee:
         st.subheader(f"Offer Letter for {employee['name']}")
-    
-    # Generate the PDF
-    pdf_content = generate_pdf_offer_letter(employee)
-    
-    # Check if PDF was properly generated
-    if pdf_content:
-        # Create a download button for PDF
-        st.download_button(
-            label="Download PDF",
-            data=base64.b64decode(pdf_content),
-            file_name=f"AI_Planet_{employee['name']}_Offer_Letter.pdf",
-            mime="application/pdf"
-        )
         
-        # Display PDF preview with better error handling
-        try:
-            pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="500" type="application/pdf"></iframe>'
-            st.markdown(pdf_display, unsafe_allow_html=True)
-        except Exception as e:
-            st.error(f"Error displaying PDF: {str(e)}")
-            st.info("Please use the download button to view the PDF externally.")
+        # Generate the PDF if not in session state
+        pdf_content = generate_pdf_offer_letter(employee)
+        
+        # Display PDF preview
+        pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="500" type="application/pdf"></iframe>'
+        st.markdown(pdf_display, unsafe_allow_html=True)
+        
+        # Add option to open in Google Docs
+        st.markdown("""
+        <a href="https://docs.google.com/document/create" target="_blank" style="text-decoration: none;">
+            <button style="background-color: #1e8e3e; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer;">
+                Open in Google Docs (edit mode)
+            </button>
+        </a>
+        <p><small>Note: Download the PDF first, then upload it to Google Docs for editing.</small></p>
+        """, unsafe_allow_html=True)
         
         col1, col2 = st.columns(2)
         

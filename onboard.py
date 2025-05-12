@@ -344,7 +344,7 @@ def generate_pdf_offer_letter(candidate_data):
     pdf.ln(10)
     pdf.cell(0, 10, 'Congratulations!', 0, 1, 'L')
     
-    pdf.image('data\chanukya-sign.png') if os.path.exists('data\chanukya-sign.png') else None
+    pdf.image('chanukya-sign.png') if os.path.exists('chanukya-sign.png') else None
     pdf.cell(0, 10, 'Chanukya Patnaik', 0, 1, 'L')
     pdf.cell(0, 6, 'Founder, AI Planet (DPhi)', 0, 1, 'L')
     

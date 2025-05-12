@@ -622,8 +622,19 @@ def preview_email(to_email, subject, content, pdf_content=None):
             
         st.markdown(f"**Attachment:** {pdf_filename}")
         
-        with st.expander("Preview PDF Attachment"):
-            show_pdf(pdf_content)
+        if st.session_state.preview_mode:
+            st.markdown("**Preview of the attached PDF:**")
+
+        if st.session_state.pdf_content:
+            pdf_bytes = base64.b64decode(st.session_state.pdf_content)
+            st.download_button(
+                label="📄 Download Offer Letter (PDF)",
+                data=pdf_bytes,
+                file_name="I Planet_{candidate_name}_Offer_Letter.pdf",
+                mime="application/pdf"
+            )
+        #with st.expander("Preview PDF Attachment"):
+         #   show_pdf(pdf_content)
 
     
     # Set up email configuration section
@@ -783,7 +794,17 @@ def main():
 # Offer letter generator page
 def offer_letter_generator():
     st.title("Offer Letter Generator")
-    
+    if st.session_state.preview_mode:
+        st.subheader("Review Offer Letter")
+
+        if st.session_state.pdf_content:
+            pdf_bytes = base64.b64decode(st.session_state.pdf_content)
+            st.download_button(
+                label="📄 Download Offer Letter (PDF)",
+                data=pdf_bytes,
+                file_name="Offer_Letter.pdf",
+                mime="application/pdf"
+            )
     # Add a mode for email confirmation and sending
     if 'email_confirmation_mode' not in st.session_state:
         st.session_state.email_confirmation_mode = False
@@ -902,26 +923,12 @@ def offer_letter_generator():
     
     elif st.session_state.preview_mode:
         # Display preview of the offer letter with validation options
-        st.subheader("Review Offer Letter")
-        
-        if st.session_state.pdf_content:
             # Display PDF preview
-            with st.expander("Preview PDF Attachment"):
-                show_pdf(pdf_content)
 
             #pdf_display = f'<iframe src="data:application/pdf;base64,{st.session_state.pdf_content}" width="100%" height="500"></iframe>'
             #st.markdown(pdf_display, unsafe_allow_html=True)
             
             # Add option to open in Google Docs
-            st.markdown("""
-            <a href="https://docs.google.com/document/create" target="_blank" style="text-decoration: none;">
-                <button style="background-color: #1e8e3e; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer;">
-                    Open in Google Docs (edit mode)
-                </button>
-            </a>
-            <p><small>Note: Download the PDF first, then upload it to Google Docs for editing.</small></p>
-            """, unsafe_allow_html=True)
-        
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -930,12 +937,7 @@ def offer_letter_generator():
                 st.session_state.preview_mode = False
                 st.rerun()
         
-        with col2:
-            if st.button("Regenerate PDF"):
-                # Regenerate the PDF with current data
-                pdf_content = generate_pdf_offer_letter(st.session_state.offer_letter_data)
-                st.session_state.pdf_content = pdf_content
-                st.rerun()
+        
         
         with col3:
             if st.button("Proceed to Send Email"):
@@ -1150,6 +1152,7 @@ def offer_letter_generator():
                         st.info("ℹ️ A notification has been sent to HR for standard review.")
                 
                 st.rerun()
+    
                 
 # Function to view offer letter of a specific candidate
 def view_offer_letter(employee_id):
@@ -1163,8 +1166,16 @@ def view_offer_letter(employee_id):
         pdf_content = generate_pdf_offer_letter(employee)
         
         # Display PDF preview
-        with st.expander("Preview PDF Attachment"):
-            show_pdf(pdf_content)
+        if st.session_state.preview_mode:
+            st.subheader("Preview Offer Letter")
+            if st.session_state.pdf_content:
+                pdf_bytes = base64.b64decode(st.session_state.pdf_content)
+                st.download_button(
+                    label="📄 Download Offer Letter (PDF)",
+                    data=pdf_bytes,
+                    file_name="{employee['name']}_Offer_Letter.pdf",
+                    mime="application/pdf"
+                )
 
         #pdf_display = f'<iframe src="data:application/pdf;base64,{pdf_content}" width="100%" height="500"></iframe>'
         #st.markdown(pdf_display, unsafe_allow_html=True)
@@ -1759,3 +1770,6 @@ def get_intervention_message(employee_data, intervention_type):
 # Run the application
 if __name__ == "__main__":
     main()
+
+
+# Function to check if email is valid
